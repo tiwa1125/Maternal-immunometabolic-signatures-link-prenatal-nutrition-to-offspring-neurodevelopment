@@ -1,0 +1,1895 @@
+---
+title: "Untitled"
+author: "Tingting"
+date: "2025-02-12"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(ggforce)
+library(pheatmap)
+library(RColorBrewer)
+library(vegan)
+library(broom)
+library(ggstance)
+library(lubridate)
+library(readxl)
+library(ggpubr)
+library(janitor)
+library(rio)
+library(tidyr)
+library(mlbench)
+library(ggplot2)
+library(forcats)
+library(dplyr)
+library(openxlsx)
+```
+
+```{r}
+load("~/covariat_all_18.Rdata")
+load("~//diag_all_name.Rdata")
+load("~/diagnoser_paper.Rdata")
+all_annotation<-read.xlsx("~/Chemical_Annotation_Common.xlsx")
+# Add "X" to the start of each cell in the specific column
+
+longti_data<-read.xlsx("~/all_anchor_norm_impute30_log_output_halfmin.xlsx")
+
+longti_data_1<-longti_data%>%filter(TP%in% c("Mor_w24","Mor_w1","6mth", "18mth", "6yr","10yr"))
+
+w24_whole<-longti_data_2%>%filter(TP=="Mor_w24")
+
+yr10_whole<-longti_data_2%>%filter(TP=="10yr")
+
+filtered_df_diag0<-left_join(diag_all_name[,c(1,3,5,8)],longti_data_2, by="ABCNO")
+w1<-filtered_df_diag0%>%filter(TP=="Mor_w1")
+w1_1<-w1[,c(4,7:690)]
+
+load("~/psychopathology_wide.Rdata")
+
+psychopathology_wide_s<-data.frame(psychopathology_wide)[,c(1:7,9,13:17,50,51,56)]
+names(psychopathology_wide_s)
+colnames(psychopathology_wide_s)[1]<-"ABCNO"
+fish_oil<- read_xlsx('~/ABC_Fishoil.xlsx', sheet = 'Data') 
+```
+
+## R Markdown
+```{r}
+breastfeed<-load("~/breastfeed.RData")
+
+new_all_w1<-list(covariat_all_18%>%dplyr::select(1),psychopathology_wide_s[,c(1,3,5,11,16)],adhdrs8, diag_all_name%>%dplyr::select(1:5,8),diagnoser_paper%>%dplyr::select(1:2),covariat_all_18%>%dplyr::select(1,5:18),VD%>%dplyr::select(ABCNO, VD), fish_oil%>%dplyr::select(ABCNO,fish_oil),breastfeed[,c(1,2)],Birth, w1[,c(1,7:690)])%>%reduce(full_join,by="ABCNO")
+a<-glm(neu_dev~fish_oil*cmpf, data=new_all_w1,family=binomial())
+summary(a)
+#names(new_all_w1)
+#RCT or placebo
+new_all_w1_fishRCT<-filter(new_all_w1,fish_oil=="Fiskeolie")
+new_all_w1_pla<-filter(new_all_w1,fish_oil=="Placebo")
+
+med <- quantile(new_all_w1$cmpf, 0.5, na.rm = TRUE)
+new_all_w1 <- new_all_w1 %>%
+  mutate(
+    CMPF_level = case_when(
+      is.na(cmpf)        ~ NA_character_,   # keep NA as NA
+      cmpf <= med        ~ "Low",
+      cmpf >  med        ~ "High"
+    ),
+    CMPF_level = factor(CMPF_level, levels = c("Low","High"))
+  )
+new_all_w1_low<-filter(new_all_w1,CMPF_level=="Low")
+
+new_all_w1_1<-new_all_w1%>%dplyr::select(ABCNO,cmpf,hcmpf,3cmpf,fish_oil)
+new_all_w1_1<-na.omit(new_all_w1_1)
+wilcox_test <- wilcox.test(cmpf~fish_oil, data =new_all_w1_1)
+p_value <- wilcox_test$p.value  # Extract the p-value
+p_value
+new_all_w1_1$fish_oil <- factor(
+  new_all_w1_1$fish_oil,
+  levels = c( "Fiskeolie","Placebo"),                # adjust if your control label differs
+  labels = c("Fish oil intervention","Placebo")     # new labels
+)
+##kruskal_test <- kruskal.test(hcmpf ~ rs1177442_A, data = hold_w24_1)
+#kruskal_test$p.value
+# Create a nicely formatted boxplot
+CMPF_w1 <- ggplot(new_all_w1_1, aes(x = factor(fish_oil), y = cmpf, fill = factor(fish_oil))) +
+    geom_boxplot(outlier.shape = NA, width = 0.5, color = "gray40", alpha = 0.7) +
+    geom_jitter(aes(color = factor(fish_oil)), width = 0.15, size = 2, alpha = 0.6) +
+    scale_fill_manual(values = c("#f6511d", "#61a0af")) +
+    scale_color_manual(values = c("#f6511d", "#61a0af")) +
+    labs(
+        x = "",
+        y = "CMPF levels",
+        title = "CMPF week 1 postpartum"
+    ) +
+    annotate(
+        "text",
+        x = 1.5,
+        y = max(new_all_w1_1$cmpf, na.rm = TRUE) * 1.05,
+        label = paste("p =", formatC(p_value, digits = 2)),
+        size = 5,
+        fontface = "bold",
+        color = "black"
+    ) +
+    theme_minimal(base_size = 14) +
+    theme(
+        legend.position = "none",
+        panel.grid = element_blank(),          # remove all gridlines
+        axis.line = element_line(color = "black"),
+        plot.title = element_text(hjust = 0.5, face = "bold"),
+        axis.title = element_text(face = "bold"),
+        axis.text = element_text(color = "black"),
+        panel.border = element_blank()
+    )
+CMPF_w1
+#HCMPF
+wilcox_test <- wilcox.test(hcmpf~fish_oil, data =new_all_w1_1)
+p_value <- wilcox_test$p.value  # Extract the p-value
+p_value
+##kruskal_test <- kruskal.test(hcmpf ~ rs1177442_A, data = hold_w24_1)
+#kruskal_test$p.value
+# Create a nicely formatted boxplot
+HCMPF_w1 <- ggplot(new_all_w1_1, aes(x = factor(fish_oil), y = hcmpf, fill = factor(fish_oil))) +
+    geom_boxplot(outlier.shape = NA, width = 0.5, color = "gray40", alpha = 0.7) +
+    geom_jitter(aes(color = factor(fish_oil)), width = 0.15, size = 2, alpha = 0.6) +
+    scale_fill_manual(values = c("#f6511d", "#61a0af")) +
+    scale_color_manual(values = c("#f6511d", "#61a0af")) +
+    labs(
+        x = "",
+        y = "Hydroxy CMPF levels",
+        title = "Hydroxy CMPF week 1 postpartum"
+    ) +
+    annotate(
+        "text",
+        x = 1.5,
+        y = max(new_all_w1_1$hcmpf, na.rm = TRUE) * 1.05,
+        label = paste("p =", formatC(p_value, digits = 2)),
+        size = 5,
+        fontface = "bold",
+        color = "black"
+    ) +
+    theme_minimal(base_size = 14) +
+    theme(
+        legend.position = "none",
+        panel.grid = element_blank(),          # remove all gridlines
+        axis.line = element_line(color = "black"),
+        plot.title = element_text(hjust = 0.5, face = "bold"),
+        axis.title = element_text(face = "bold"),
+        axis.text = element_text(color = "black"),
+        panel.border = element_blank()
+    )
+HCMPF_w1
+#3cmpfp
+wilcox_test <- wilcox.test(3cmpf~fish_oil, data =new_all_w1_1)
+p_value <- wilcox_test$p.value  # Extract the p-value
+p_value
+CMPF3_w1 <- ggplot(new_all_w1_1, aes(x = factor(fish_oil), y = 3cmpf, fill = factor(fish_oil))) +
+    geom_boxplot(outlier.shape = NA, width = 0.5, color = "gray40", alpha = 0.7) +
+    geom_jitter(aes(color = factor(fish_oil)), width = 0.15, size = 2, alpha = 0.6) +
+    scale_fill_manual(values = c("#f6511d", "#61a0af")) +
+    scale_color_manual(values = c("#f6511d", "#61a0af")) +
+    labs(
+        x = "",
+        y = "3-CMPFP levels",
+        title = "3-CMPFP week 1 postpartum"
+    ) +
+    annotate(
+        "text",
+        x = 1.5,
+        y = max(new_all_w1_1$3cmpf, na.rm = TRUE) * 1.05,
+        label = paste("p =", formatC(p_value, digits = 2)),
+        size = 5,
+        fontface = "bold",
+        color = "black"
+    ) +
+    theme_minimal(base_size = 14) +
+    theme(
+        legend.position = "none",
+        panel.grid = element_blank(),          # remove all gridlines
+        axis.line = element_line(color = "black"),
+        plot.title = element_text(hjust = 0.5, face = "bold"),
+        axis.title = element_text(face = "bold"),
+        axis.text = element_text(color = "black"),
+        panel.border = element_blank()
+    )
+CMPF3_w1
+```
+
+
+```{r}
+#new_all_w1_high<-filter(new_all_w1,CMPF_level=="High")
+new_all_w1$fish_oil_1 <- ifelse(new_all_w1$fish_oil == "Fiskeolie", 1, 0)
+a<-glm(adhd~CMPF_level*fish_oil_1,data=new_all_w1, family="binomial")
+
+summary(a)
+###unadjust Hydroxy-CMPF  
+Result_table<- matrix(data=NA, nrow=2, ncol=5)
+colnames(Result_table) <- c("name","Estimate", "CIL","CIH",
+                            "p.value")
+Result_table <- as.data.frame(Result_table)
+j<- 1
+#
+for (i in 4:5) {
+  # Now, PC1 is the independent variable (x), and each of the other columns from the 7th onwards is treated as a dependent variable (y)
+  x.var <- "hcmpf" # PC1 is used as the independent variable
+  y.var <- names(new_all_w1)[i] # Each of the columns from the 7th onwards is used as the dependent variable
+  
+  # Construct the formula with y.var as the dependent variable and PC1 as the independent variable
+  my.glm.formula <- as.formula(paste0(y.var, " ~ ", x.var))
+  
+  # Fit the linear model
+  glm_model <- lm(my.glm.formula, na.action=na.omit, data=new_all_w1)
+  
+  # Optionally, print the summary of the model
+  print(summary(glm_model))
+  
+  # Update Result_table with the results
+  Result_table[j,1] <- names(new_all_w1)[i] # Metabolite name
+  Result_table[j,2] <- round(coef(glm_model)[2], 4) # OR (Odds Ratio), assuming you mean the coefficient here
+  ci <- confint(glm_model, level = 0.95)[2, ] # 95% CI for the coefficient
+  Result_table[j,3] <- round(ci[1], 4) # Lower bound of CI
+  Result_table[j,4] <- round(ci[2], 4) # Upper bound of CI
+  Result_table[j,5] <- round(summary(glm_model)$coefficients[2, 4], 4) # P-value for the coefficient of PC1
+  
+  j <- j+1
+}
+#
+Result_table_fdr_h_CMPF_Psychopathology_unadj_w1<-Result_table%>%
+  mutate(FDR= p.adjust(Result_table$p.value,method="fdr"))
+
+plot_hydroxy_h_CMPF_unadj_w1<-Result_table_fdr_h_CMPF_Psychopathology_unadj_w1%>%
+  ggplot(aes(x = Estimate, y = name, color = "black")) + 
+  geom_text(aes(label = if_else(p.value<0.01,"**",
+                                if_else(p.value<0.05,"*","")), hjust = -0.1,vjust =0.1),size=5)+ 
+  geom_point(size = 2) +
+  geom_errorbar(aes(xmin=CIL, xmax=CIH), width=0.2, cex=0.5)+
+  geom_vline(xintercept=0, linetype = "longdash")+
+  theme_gray()+
+  theme(axis.text.y = element_text(size = 10), panel.grid.minor = element_blank())+
+  geom_text(aes(label = round(Result_table_fdr_h_CMPF_Psychopathology_unadj_w1$p.value, 4)), size=3,hjust = -0.6,vjust =-0.2, color="black")+
+  ylab("") +
+  xlab("Estimate") + 
+  ggtitle("Hydroxy-CMPF-Psychopathology_unadj")
+plot_hydroxy_h_CMPF_unadj_w1 +
+  theme_bw(base_size = 15)+
+  theme(strip.text.y = element_blank())+ 
+  theme(legend.position="none")+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+###########CMPF
+Result_table<- matrix(data=NA, nrow=2, ncol=5)
+colnames(Result_table) <- c("name","Estimate", "CIL","CIH",
+                            "p.value")
+Result_table <- as.data.frame(Result_table)
+j<- 1
+#
+for (i in 4:5) {
+  # Now, PC1 is the independent variable (x), and each of the other columns from the 7th onwards is treated as a dependent variable (y)
+  x.var <- "cmpf" # PC1 is used as the independent variable
+  y.var <- names(new_all_w1)[i] # Each of the columns from the 7th onwards is used as the dependent variable
+  
+  # Construct the formula with y.var as the dependent variable and PC1 as the independent variable
+  my.glm.formula <- as.formula(paste0(y.var, " ~ ", x.var))
+  
+  # Fit the linear model
+  glm_model <- lm(my.glm.formula, na.action=na.omit,data=new_all_w1)
+  
+  # Optionally, print the summary of the model
+  print(summary(glm_model))
+  
+  # Update Result_table with the results
+  Result_table[j,1] <- names(new_all_w1)[i] # Metabolite name
+  Result_table[j,2] <- round(coef(glm_model)[2], 4) # OR (Odds Ratio), assuming you mean the coefficient here
+  ci <- confint(glm_model, level = 0.95)[2, ] # 95% CI for the coefficient
+  Result_table[j,3] <- round(ci[1], 4) # Lower bound of CI
+  Result_table[j,4] <- round(ci[2], 4) # Upper bound of CI
+  Result_table[j,5] <- round(summary(glm_model)$coefficients[2, 4], 4) # P-value for the coefficient of PC1
+  
+  j <- j+1
+}
+#
+Result_table_fdr_CMPF_Psychopathology_unadj_w1<-Result_table%>%
+  mutate(FDR= p.adjust(Result_table$p.value,method="fdr"))
+
+plot_hydroxy_CMPF_unadj_w1<-Result_table_fdr_CMPF_Psychopathology_unadj_w1%>%
+  ggplot(aes(x = Estimate, y = name, color = "black")) + 
+  geom_text(aes(label = if_else(p.value<0.01,"**",
+                                if_else(p.value<0.05,"*","")), hjust = -0.1,vjust =0.1),size=5)+ 
+  geom_point(size = 2) +
+  geom_errorbar(aes(xmin=CIL, xmax=CIH), width=0.2, cex=0.5)+
+  geom_vline(xintercept=0, linetype = "longdash")+
+  theme_gray()+
+  theme(axis.text.y = element_text(size = 10), panel.grid.minor = element_blank())+
+  geom_text(aes(label = round(Result_table_fdr_CMPF_Psychopathology_unadj_w1$p.value, 4)), size=3,hjust = -0.6,vjust =-0.2, color="black")+
+  ylab("") +
+  xlab("Estimate") + 
+  ggtitle("CMPF-Psychopathology_unadj")
+plot_hydroxy_CMPF_unadj_w1 +
+  theme_bw(base_size = 15)+
+  theme(strip.text.y = element_blank())+ 
+  theme(legend.position="none")+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"))
+#3cmpfp
+Result_table<- matrix(data=NA, nrow=2, ncol=5)
+colnames(Result_table) <- c("name","Estimate", "CIL","CIH",
+                            "p.value")
+Result_table <- as.data.frame(Result_table)
+j<- 1
+#
+for (i in 4:5) {
+  # Now, PC1 is the independent variable (x), and each of the other columns from the 7th onwards is treated as a dependent variable (y)
+  x.var <- "3cmpf" # PC1 is used as the independent variable
+  y.var <- names(new_all_w1)[i] # Each of the columns from the 7th onwards is used as the dependent variable
+  
+  # Construct the formula with y.var as the dependent variable and PC1 as the independent variable
+  my.glm.formula <- as.formula(paste0(y.var, " ~ ", x.var))
+  
+  # Fit the linear model
+  glm_model <- lm(my.glm.formula, na.action=na.omit,data=new_all_w1)
+  
+  # Optionally, print the summary of the model
+  print(summary(glm_model))
+  
+  # Update Result_table with the results
+  Result_table[j,1] <- names(new_all_w1)[i] # Metabolite name
+  Result_table[j,2] <- round(coef(glm_model)[2], 4) # OR (Odds Ratio), assuming you mean the coefficient here
+  ci <- confint(glm_model, level = 0.95)[2, ] # 95% CI for the coefficient
+  Result_table[j,3] <- round(ci[1], 4) # Lower bound of CI
+  Result_table[j,4] <- round(ci[2], 4) # Upper bound of CI
+  Result_table[j,5] <- round(summary(glm_model)$coefficients[2, 4], 4) # P-value for the coefficient of PC1
+  
+  j <- j+1
+}
+#
+Result_table_fdr_3CMPFP_Psychopathology_unadj_w1<-Result_table%>%
+  mutate(FDR= p.adjust(Result_table$p.value,method="fdr"))
+
+```
+
+adjusted
+```{r}
+###adjsuted Hydroxy-CMPF-Psychopathology
+
+Result_table<- matrix(data=NA, nrow=2, ncol=5)
+colnames(Result_table) <- c("name","Estimate", "CIL","CIH",
+                            "p.value")
+Result_table <- as.data.frame(Result_table)
+j<- 1
+#
+for (i in 4:5) {
+  # Now, PC1 is the independent variable (x), and each of the other columns from the 7th onwards is treated as a dependent variable (y)
+  x.var <- "hcmpf" # PC1 is used as the independent variable
+  y.var <- names(new_all_w1)[i] # Each of the columns from the 7th onwards is used as the dependent variable
+  
+  # Construct the formula with y.var as the dependent variable and PC1 as the independent variable
+  my.glm.formula <- as.formula(paste0(y.var, " ~ ", x.var,"+ sex+mother_smoking+
+                                        motherage +mother_bmi +ga +birthweight+familyincome_at1week +maternal_education_at1w+ paternal_education_at1w+VD"))
+  
+  # Fit the linear model
+  glm_model <- lm(my.glm.formula, na.action=na.omit, data=new_all_w1)
+  
+  # Optionally, print the summary of the model
+  print(summary(glm_model))
+  
+  # Update Result_table with the results
+  Result_table[j,1] <- names(new_all_w1)[i] # Metabolite name
+  Result_table[j,2] <- round(coef(glm_model)[2], 4) # OR (Odds Ratio), assuming you mean the coefficient here
+  ci <- confint(glm_model, level = 0.95)[2, ] # 95% CI for the coefficient
+  Result_table[j,3] <- round(ci[1], 4) # Lower bound of CI
+  Result_table[j,4] <- round(ci[2], 4) # Upper bound of CI
+  Result_table[j,5] <- round(summary(glm_model)$coefficients[2, 4], 4) # P-value for the coefficient of PC1
+  
+  j <- j+1
+}
+#
+Result_table_fdr_h_CMPF_Psychopathology_adj_w1<-Result_table%>%
+  mutate(FDR= p.adjust(Result_table$p.value,method="fdr"))
+
+plot_hydroxy_h_CMPF_adj_w1<-Result_table_fdr_h_CMPF_Psychopathology_adj_w1%>%
+  ggplot(aes(x = Estimate, y = name, color = "black")) + 
+  geom_text(aes(label = if_else(p.value<0.01,"**",
+                                if_else(p.value<0.05,"*","")), hjust = -0.1,vjust =0.1),size=5)+ 
+  geom_point(size = 2) +
+  geom_errorbar(aes(xmin=CIL, xmax=CIH), width=0.2, cex=0.5)+
+  geom_vline(xintercept=0, linetype = "longdash")+
+  theme_gray()+
+  theme(axis.text.y = element_text(size = 10), panel.grid.minor = element_blank())+
+  geom_text(aes(label = round(Result_table_fdr_h_CMPF_Psychopathology_adj_w1$p.value, 4)), size=3,hjust = -0.6,vjust =-0.2, color="black")+
+  ylab("") +
+  xlab("Estimate") + 
+  ggtitle("Hydroxy-CMPF-Psychopathology_adj")
+plot_hydroxy_h_CMPF_adj_w1 +
+  theme_bw(base_size = 15)+
+  theme(strip.text.y = element_blank())+ 
+  theme(legend.position="none")+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+###CMPF adj
+Result_table<- matrix(data=NA, nrow=2, ncol=5)
+colnames(Result_table) <- c("name","Estimate", "CIL","CIH",
+                            "p.value")
+Result_table <- as.data.frame(Result_table)
+j<- 1
+#
+for (i in 4:5) {
+  # Now, PC1 is the independent variable (x), and each of the other columns from the 7th onwards is treated as a dependent variable (y)
+  x.var <- "cmpf" # PC1 is used as the independent variable
+  y.var <- names(new_all_w1)[i] # Each of the columns from the 7th onwards is used as the dependent variable
+  
+  # Construct the formula with y.var as the dependent variable and PC1 as the independent variable
+  my.glm.formula <- as.formula(paste0(y.var, " ~ ", x.var,"+ sex+mother_smoking+
+                                        motherage +mother_bmi +ga +birthweight+familyincome_at1week +maternal_education_at1w+ paternal_education_at1w+VD"))
+  
+  # Fit the linear model
+  glm_model <- lm(my.glm.formula, na.action=na.omit,data=new_all_w1)
+  
+  # Optionally, print the summary of the model
+  print(summary(glm_model))
+  
+  # Update Result_table with the results
+  Result_table[j,1] <- names(new_all_w1)[i] # Metabolite name
+  Result_table[j,2] <- round(coef(glm_model)[2], 4) # OR (Odds Ratio), assuming you mean the coefficient here
+  ci <- confint(glm_model, level = 0.95)[2, ] # 95% CI for the coefficient
+  Result_table[j,3] <- round(ci[1], 4) # Lower bound of CI
+  Result_table[j,4] <- round(ci[2], 4) # Upper bound of CI
+  Result_table[j,5] <- round(summary(glm_model)$coefficients[2, 4], 4) # P-value for the coefficient of PC1
+  
+  j <- j+1
+}
+#
+Result_table_fdr_CMPF_Psychopathology_adj_w1<-Result_table%>%
+  mutate(FDR= p.adjust(Result_table$p.value,method="fdr"))
+
+plot_hydroxy_CMPF_adj_w1<-Result_table_fdr_CMPF_Psychopathology_adj_w1%>%
+  ggplot(aes(x = Estimate, y = name, color = "black")) + 
+  geom_text(aes(label = if_else(p.value<0.01,"**",
+                                if_else(p.value<0.05,"*","")), hjust = -0.1,vjust =0.1),size=5)+ 
+  geom_point(size = 2) +
+  geom_errorbar(aes(xmin=CIL, xmax=CIH), width=0.2, cex=0.5)+
+  geom_vline(xintercept=0, linetype = "longdash")+
+  theme_gray()+
+  theme(axis.text.y = element_text(size = 10), panel.grid.minor = element_blank())+
+  geom_text(aes(label = round(Result_table_fdr_CMPF_Psychopathology_adj_w1$p.value, 4)), size=3,hjust = -0.6,vjust =-0.2, color="black")+
+  ylab("") +
+  xlab("Estimate") + 
+  ggtitle("CMPF-Psychopathology-adj")
+plot_hydroxy_CMPF_adj_w1 +
+  theme_bw(base_size = 15)+
+  theme(strip.text.y = element_blank())+ 
+  theme(legend.position="none")+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"))
+#3CMPFP
+Result_table<- matrix(data=NA, nrow=2, ncol=5)
+colnames(Result_table) <- c("name","Estimate", "CIL","CIH",
+                            "p.value")
+Result_table <- as.data.frame(Result_table)
+j<- 1
+#
+for (i in 4:5) {
+  # Now, PC1 is the independent variable (x), and each of the other columns from the 7th onwards is treated as a dependent variable (y)
+  x.var <- "3cmpf" # PC1 is used as the independent variable
+  y.var <- names(new_all_w1)[i] # Each of the columns from the 7th onwards is used as the dependent variable
+  
+  # Construct the formula with y.var as the dependent variable and PC1 as the independent variable
+  my.glm.formula <- as.formula(paste0(y.var, " ~ ", x.var,"+ sex+mother_smoking+
+                                        motherage +mother_bmi +ga +birthweight+familyincome_at1week +maternal_education_at1w+ paternal_education_at1w+VD"))
+  
+  # Fit the linear model
+  glm_model <- lm(my.glm.formula, na.action=na.omit, data=new_all_w1)
+  
+  # Optionally, print the summary of the model
+  print(summary(glm_model))
+  
+  # Update Result_table with the results
+  Result_table[j,1] <- names(new_all_w1)[i] # Metabolite name
+  Result_table[j,2] <- round(coef(glm_model)[2], 4) # OR (Odds Ratio), assuming you mean the coefficient here
+  ci <- confint(glm_model, level = 0.95)[2, ] # 95% CI for the coefficient
+  Result_table[j,3] <- round(ci[1], 4) # Lower bound of CI
+  Result_table[j,4] <- round(ci[2], 4) # Upper bound of CI
+  Result_table[j,5] <- round(summary(glm_model)$coefficients[2, 4], 4) # P-value for the coefficient of PC1
+  
+  j <- j+1
+}
+#
+Result_table_fdr_3CMPFP_Psychopathology_adj_w1<-Result_table%>%
+  mutate(FDR= p.adjust(Result_table$p.value,method="fdr"))
+
+plot_3CMPFP_adj_w1<-Result_table_fdr_3CMPFP_Psychopathology_adj_w1%>%
+  ggplot(aes(x = Estimate, y = name, color = "black")) + 
+  geom_text(aes(label = if_else(p.value<0.01,"**",
+                                if_else(p.value<0.05,"*","")), hjust = -0.1,vjust =0.1),size=5)+ 
+  geom_point(size = 2) +
+  geom_errorbar(aes(xmin=CIL, xmax=CIH), width=0.2, cex=0.5)+
+  geom_vline(xintercept=0, linetype = "longdash")+
+  theme_gray()+
+  theme(axis.text.y = element_text(size = 10), panel.grid.minor = element_blank())+
+  geom_text(aes(label = round(Result_table_fdr_3CMPFP_Psychopathology_adj_w1$p.value, 4)), size=3,hjust = -0.6,vjust =-0.2, color="black")+
+  ylab("") +
+  xlab("Estimate") + 
+  ggtitle("3CMPFP-Psychopathology_adj")
+plot_3CMPFP_adj_w1 +
+  theme_bw(base_size = 15)+
+  theme(strip.text.y = element_blank())+ 
+  theme(legend.position="none")+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"))
+```
+
+```{r}
+#unadjust
+sym_unadj<-bind_rows(
+  mutate(Result_table_fdr_CMPF_Psychopathology_unadj_w1, Metabolites = "CMPF"),
+  mutate(Result_table_fdr_h_CMPF_Psychopathology_unadj_w1,  Metabolites = "Hydroxy-CMPF"),
+  mutate(Result_table_fdr_3CMPFP_Psychopathology_unadj_w1,  Metabolites = "3-CMPFP")
+)
+replacements <- setNames(c("ADHD-RS (total)","SRS-2 (total)"), c("adhdrs_adhd_symptoms_sc_f","total_srs2_srr"))
+sym_unadj$name <- with(sym_unadj, ifelse(name %in% names(replacements), replacements[name], name))
+sym_unadj<-sym_unadj[,c(-6)]
+sym_unadj<-mutate(sym_unadj, Level= "4")
+sym_unadj$FDR <- p.adjust(sym_unadj$p.value, method = "fdr")
+sym_unadj
+sym_unadj<-mutate(sym_unadj, adjustment= "unadjusted")
+sym_unadj1 <- data.frame(
+  name = sym_unadj$name,
+  Metabolites=sym_unadj$Metabolites,
+  symptoms_unadj = sprintf("%.2f [%.2f - %.2f] (P = %.4f, P.fdr=%.4f)",sym_unadj$Estimate, sym_unadj$CIL, sym_unadj$CIH, sym_unadj$p.value,sym_unadj$FDR)
+)
+#adjust
+sym_adj<-bind_rows(
+  mutate(Result_table_fdr_CMPF_Psychopathology_adj_w1,  Metabolites = "CMPF"),
+  mutate(Result_table_fdr_h_CMPF_Psychopathology_adj_w1,  Metabolites = "Hydroxy-CMPF"),
+  mutate(Result_table_fdr_3CMPFP_Psychopathology_adj_w1,  Metabolites = "3-CMPFP")
+)
+replacements <- setNames(c("ADHD-RS (total)","SRS-2 (total)"), c("adhdrs_adhd_symptoms_sc_f","total_srs2_srr"))
+sym_adj$name <- with(sym_adj, ifelse(name %in% names(replacements), replacements[name], name))
+sym_adj<-sym_adj[,c(-6)]
+sym_adj$FDR <- p.adjust(sym_adj$p.value, method = "fdr")
+sym_adj
+sym_adj<-mutate(sym_adj, adjustment= "adjusted")
+sym_adj1 <- data.frame(
+  name = sym_adj$name,
+  Metabolites=sym_adj$Metabolites,
+  symptoms_adj = sprintf("%.2f [%.2f - %.2f] (P = %.4f, P.fdr=%.4f)",sym_adj$Estimate, sym_adj$CIL, sym_adj$CIH, sym_adj$p.value,sym_adj$FDR)
+)
+write.csv(sym_adj1,file="~/sym_adj_week1.csv")
+```
+
+CMPF and dimensional psychopathology
+```{r}
+combined_dataset_w1_NDDS_CMPF <- bind_rows(
+  mutate(Result_table_fdr_CMPF_Psychopathology_unadj_w1, Adjustment = "Unadjusted"),
+  mutate(Result_table_fdr_h_CMPF_Psychopathology_unadj_w1, Adjustment = "Adjusted")
+)
+#method_order <- c("Unadjusted", "Adjusted", "Adjusted + hs-CRP","Adjusted + PRS")
+method_order <- c("Adjusted","Unadjusted" )
+
+
+replacements <- setNames(c("ADHD-RS (total)","SRS-2 (total)"), c("adhdrs_adhd_symptoms_sc_f","total_srs2_srr"))
+combined_dataset_w1_NDDS_CMPF$name <- with(combined_dataset_w1_NDDS_CMPF, ifelse(name %in% names(replacements), replacements[name], name))
+combined_dataset_w1_NDDS_CMPF1<- combined_dataset_w1_NDDS_CMPF %>%
+  mutate(Adjustment = factor(Adjustment, levels = method_order))
+
+dodge_width <- 0.5  # Adjust as needed
+
+# Adjust text_offset to a small number to ensure text does not overlap with the error bars
+text_offset <- 0.01  # Positive for right of the error bars, negative for left
+
+
+# Your existing ggplot code
+w1_NDDS_CMPF1<-ggplot(combined_dataset_w1_NDDS_CMPF1, aes(x = Estimate, y = name, color = Adjustment)) +
+  geom_errorbar(aes(xmin = CIL, xmax = CIH), width = 0.2, size=1.2,position = position_dodge(width = dodge_width)) +
+  geom_point(position = position_dodge(width = dodge_width), size = 4) +
+  geom_text(aes(x = CIH + text_offset, 
+                label = if_else(FDR < 0.001, 
+                                paste("** (", formatC(p.value, format = "e", digits = 1), ")", sep = ""),  # Scientific notation for p < 0.001
+                                if_else(FDR < 0.05, 
+                                        paste("** (", sub("^0\\.", ".", format(round(p.value, 3), nsmall = 3)), ")", sep = ""),  # Three digits if p < 0.01
+                                        if_else(p.value < 0.05, 
+                                                paste("* (", sub("^0\\.", ".", format(round(p.value, 2), nsmall = 2)), ")", sep = ""),  # Two digits for 0.01 ≤ p < 0.05
+                                                if_else(p.value < 0.2,
+                                                        paste(". (", sub("^0\\.", ".", format(round(p.value, 2), nsmall = 2)), ")", sep = ""),  # Two digits for 0.05 ≤ p < 0.1 with "."
+                                                        "")))),  # Hide p-values for p >= 0.1
+                hjust = -0.1), size = 4.5, position = position_dodge(width = dodge_width)) +
+  geom_vline(xintercept = 0, linetype = "longdash") +
+  scale_color_manual(values = c("#345d67", "#f09308")) +
+  theme_bw(base_size = 12) +
+    scale_x_continuous(limits = c(-3, 1)) +
+  theme(axis.text.y = element_text(size = 12),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.line = element_line(colour = "black"),
+        legend.position = "right") +
+  ylab("") +
+  xlab("Estimate") +
+  ggtitle("CMPF-symptoms week 1") +
+  guides(color = guide_legend(reverse = TRUE))  # Reverse the order of legend item
+w1_NDDS_CMPF1
+```
+h_CMPF
+```{r}
+combined_dataset_W1_NDD_HCMPF<- bind_rows(
+  mutate(Result_table_fdr_h_CMPF_Psychopathology_unadj_w1, Adjustment = "Unadjusted"),
+  mutate(Result_table_fdr_h_CMPF_Psychopathology_adj_w1, Adjustment = "Adjusted"),
+)
+#method_order <- c("Unadjusted", "Adjusted", "Adjusted + hs-CRP","Adjusted + PRS")
+method_order <- c("Adjusted","Unadjusted" )
+
+
+replacements <- setNames(c("ADHD-RS (total)","SRS-2 (total)"), c("adhdrs_adhd_symptoms_sc_f","total_srs2_srr"))
+combined_dataset_W1_NDD_HCMPF$name <- with(combined_dataset_W1_NDD_HCMPF, ifelse(name %in% names(replacements), replacements[name], name))
+
+combined_dataset_W1_NDD_HCMPF$name <- with(combined_dataset_W1_NDD_HCMPF, ifelse(name %in% names(replacements), replacements[name], name))
+combined_dataset_W1_NDD_HCMPF1<- combined_dataset_W1_NDD_HCMPF %>%
+  mutate(Adjustment = factor(Adjustment, levels = method_order))
+
+dodge_width <- 0.6  # Adjust as needed
+
+# Adjust text_offset to a small number to ensure text does not overlap with the error bars
+text_offset <- 0.05  # Positive for right of the error bars, negative for left
+
+
+W1_NDD_HCMPF1<-ggplot(combined_dataset_W1_NDD_HCMPF1, aes(x = Estimate, y = name, color = Adjustment)) +
+  geom_errorbar(aes(xmin = CIL, xmax = CIH), width = 0.2, size = 1.5, position = position_dodge(width = dodge_width)) +
+  geom_point(position = position_dodge(width = dodge_width), size = 3) +
+   geom_text(aes(x = CIH + text_offset, 
+                label = if_else(FDR< 0.001, 
+                                paste("** (", formatC(p.value, format = "e", digits = 1), ")", sep = ""),  # Scientific notation for p < 0.001
+                                if_else(FDR < 0.05, 
+                                        paste("** (", sub("^0\\.", ".", format(round(p.value, 3), nsmall = 3)), ")", sep = ""),  # Three digits if p < 0.01
+                                        if_else(p.value < 0.05, 
+                                                paste("* (", sub("^0\\.", ".", format(round(p.value, 2), nsmall = 2)), ")", sep = ""),  # Two digits for 0.01 ≤ p < 0.05
+                                                if_else(p.value < 0.2,
+                                                        paste(". (", sub("^0\\.", ".", format(round(p.value, 2), nsmall = 2)), ")", sep = ""),  # Two digits for 0.05 ≤ p < 0.1 with "."
+                                                        "")))),  # Hide p-values for p >= 0.1
+                hjust = -0.1), size = 4.5, position = position_dodge(width = dodge_width)) +
+  geom_vline(xintercept = 0, linetype = "longdash") +
+  scale_x_continuous(limits = c(-5, 1.5)) +
+  scale_color_manual(values = c("#345d67", "#f09308")) +
+  theme_bw(base_size = 12) +
+  theme(axis.text.y = element_text(size = 12),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.line = element_line(colour = "black"),
+        legend.position = "right") +
+  ylab("") +
+  xlab("Estimate") +
+  ggtitle("Hydroxy-CMPF symptoms week 1") +
+  guides(color = guide_legend(reverse = TRUE))
+W1_NDD_HCMPF1
+
+ 
+```
+#3CMPFP
+```{r}
+combined_dataset_W1_NDD_3CMPFP<- bind_rows(
+  mutate(Result_table_fdr_3CMPFP_Psychopathology_unadj_w1, Adjustment = "Unadjusted"),
+  mutate(Result_table_fdr_3CMPFP_Psychopathology_adj_w1, Adjustment = "Adjusted"),
+)
+#method_order <- c("Unadjusted", "Adjusted", "Adjusted + hs-CRP","Adjusted + PRS")
+method_order <- c("Adjusted","Unadjusted" )
+
+replacements <- setNames(c("ADHD-RS (total)","SRS-2 (total)"), c("adhdrs_adhd_symptoms_sc_f","total_srs2_srr"))
+combined_dataset_W1_NDD_3CMPFP$name <- with(combined_dataset_W1_NDD_3CMPFP, ifelse(name %in% names(replacements), replacements[name], name))
+
+combined_dataset_W1_NDD_3CMPFP$name <- with(combined_dataset_W1_NDD_3CMPFP, ifelse(name %in% names(replacements), replacements[name], name))
+combined_dataset_W1_NDD_3CMPFP_2<- combined_dataset_W1_NDD_3CMPFP %>%
+  mutate(Adjustment = factor(Adjustment, levels = method_order))
+
+dodge_width <- 0.6  # Adjust as needed
+
+# Adjust text_offset to a small number to ensure text does not overlap with the error bars
+text_offset <- 0.05  # Positive for right of the error bars, negative for left
+
+W1_NDD_3CMPFP1<-ggplot(combined_dataset_W1_NDD_3CMPFP_2, aes(x = Estimate, y = name, color = Adjustment)) +
+  geom_errorbar(aes(xmin = CIL, xmax = CIH), width = 0.2, size = 1.5, position = position_dodge(width = dodge_width)) +
+  geom_point(position = position_dodge(width = dodge_width), size = 3) +
+  geom_text(aes(x = CIH + text_offset, 
+                label = if_else(p.value < 0.001, 
+                                paste("** (", formatC(p.value, format = "e", digits = 1), ")", sep = ""),  # Scientific notation for p < 0.001
+                                if_else(FDR < 0.05, 
+                                        paste("** (", sub("^0\\.", ".", format(round(p.value, 3), nsmall = 3)), ")", sep = ""),  # Three digits if p < 0.01
+                                        if_else(p.value < 0.05, 
+                                                paste("* (", sub("^0\\.", ".", format(round(p.value, 2), nsmall = 2)), ")", sep = ""),  # Two digits for 0.01 ≤ p < 0.05
+                                                if_else(p.value < 0.2,
+                                                        paste(". (", sub("^0\\.", ".", format(round(p.value, 2), nsmall = 2)), ")", sep = ""),  # Two digits for 0.05 ≤ p < 0.1 with "."
+                                                        "")))),  # Hide p-values for p >= 0.1
+                hjust = -0.1), size = 4.5, position = position_dodge(width = dodge_width)) +
+  geom_vline(xintercept = 0, linetype = "longdash") +
+  #scale_x_continuous(limits = c(-5, 1.5)) +
+  scale_color_manual(values = c("#345d67", "#f09308")) +
+  theme_bw(base_size = 12) +
+  theme(axis.text.y = element_text(size = 12),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.line = element_line(colour = "black"),
+        legend.position = "right") +
+  ylab("") +
+  xlab("Estimate") +
+  ggtitle("3-CMPFP symptom week 1") +
+  guides(color = guide_legend(reverse = TRUE))
+W1_NDD_3CMPFP1
+```
+
+
+```{r}
+# Combine the plots in a 2x2 grid with aligned axes and common legend
+combined_plot <- ggarrange(
+  w1_NDDS_CMPF1,
+  W1_NDD_HCMPF1,
+  W1_NDD_3CMPFP1,
+  ncol = 3, nrow = 1,
+  align = "hv",             # Align both horizontal and vertical axes
+  common.legend = TRUE,     # Share the legend among plots
+  legend = "right",         # Position the legend on the right side
+  labels = c("a", "b","c"), # Labels for subplots
+  label.x = 0.1,            # Adjust horizontal position of labels
+  label.y = 1.0,            # Adjust vertical position of labels
+  font.label = list(size = 14, face = "bold") # Font size and style for labels
+)
+
+# Print the combined plot
+print(combined_plot)
+```
+
+##diagnose
+```{r}
+###unadjust
+#CMPF
+Result_table<- matrix(data=NA, nrow=5, ncol=5)
+colnames(Result_table) <- c("name","OR", "CIL","CIH","p.value")
+#
+Result_table <- as.data.frame(Result_table)
+j <- 1
+# Assuming new_all0 has a column named 'PC1' for Principal Component 1
+for (i in 11:15) {
+  # Now, PC1 is the independent variable (x), and each of the other columns from the 7th onwards is treated as a dependent variable (y)
+  x.var <- "cmpf" # PC1 is used as the independent variable
+  y.var <- names(new_all_w1)[i] # Each of the columns from the 7th onwards is used as the dependent variable
+  my.glm.formula <- as.formula(paste0(y.var, " ~ ", x.var))
+  glm_model <- glm(my.glm.formula, na.action=na.omit, data=new_all_w1,family = binomial())
+  print(summary(glm_model))
+  Result_table[j,1] <- names(new_all_w1)[i] # Metabolite name
+  Result_table[j,2] <- round(exp(coef(glm_model)[2]), 4) # OR (Odds Ratio), assuming you mean the coefficient here
+  ci <- exp(confint(glm_model, level = 0.95)[2, ])# 95% CI for the coefficient
+  Result_table[j,3] <- round(ci[1], 4) # Lower bound of CI
+  Result_table[j,4] <- round(ci[2], 4) # Upper bound of CI
+  Result_table[j,5] <- round(summary(glm_model)$coefficients[2, 4], 10) # P-value for the coefficient of PC1
+  
+  j <- j+1
+}
+
+Result_table_fdr_diagnose_CMPF_unadj_w1<-Result_table%>%
+  mutate(FDR= p.adjust(Result_table$p.value,method="fdr"))
+plot_proteome_diagnose_CMPF_unadj_w1<-Result_table_fdr_diagnose_CMPF_unadj_w1 %>%
+  ggplot(aes(x = OR, y = name, color = "black")) + 
+  geom_text(aes(label = if_else(FDR<0.05,"**",
+                                if_else(p.value<0.05,"*","")), hjust = -0.1,vjust =-0.03),size=5)+ 
+  geom_point(size = 2) +
+  geom_errorbar(aes(xmin=CIL, xmax=CIH), width=0.2, cex=0.5)+
+  geom_vline(xintercept=1, linetype = "longdash")+
+  theme_gray()+
+  theme(axis.text.y = element_text(size = 10), panel.grid.minor = element_blank())+
+  geom_text(aes(label = round(Result_table_fdr_diagnose_CMPF_unadj_w1$p.value, 4)), size=4,hjust = -0.6,vjust =-0.2, color="black")+
+  ylab("") +
+  xlab("OR") + 
+  ggtitle("CMPF_diagnose_unjusted")
+plot_proteome_diagnose_CMPF_unadj_w1 +
+  theme_bw(base_size = 20)+
+  theme(strip.text.y = element_blank())+ 
+  theme(legend.position="none")+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"))
+#H-CFPF
+Result_table<- matrix(data=NA, nrow=5, ncol=5)
+colnames(Result_table) <- c("name","OR", "CIL","CIH","p.value")
+#
+Result_table <- as.data.frame(Result_table)
+j <- 1
+
+# Assuming new_all0 has a column named 'PC1' for Principal Component 1
+for (i in 11:15) {
+  # Now, PC1 is the independent variable (x), and each of the other columns from the 7th onwards is treated as a dependent variable (y)
+  x.var <- "hcmpf" # PC1 is used as the independent variable
+  y.var <- names(new_all_w1)[i] # Each of the columns from the 7th onwards is used as the dependent variable
+  my.glm.formula <- as.formula(paste0(y.var, " ~ ", x.var))
+  glm_model <- glm(my.glm.formula, na.action=na.omit,data=new_all_w1,family = binomial())
+  print(summary(glm_model))
+  Result_table[j,1] <- names(new_all_w1)[i] # Metabolite name
+  Result_table[j,2] <- round(exp(coef(glm_model)[2]), 4) # OR (Odds Ratio), assuming you mean the coefficient here
+  ci <- exp(confint(glm_model, level = 0.95)[2, ])# 95% CI for the coefficient
+  Result_table[j,3] <- round(ci[1], 4) # Lower bound of CI
+  Result_table[j,4] <- round(ci[2], 4) # Upper bound of CI
+  Result_table[j,5] <- round(summary(glm_model)$coefficients[2, 4], 10) # P-value for the coefficient of PC1
+  
+  j <- j+1
+}
+
+Result_table_fdr_diagnose_H_CMPF_unadj_w1<-Result_table%>%
+  mutate(FDR= p.adjust(Result_table$p.value,method="fdr"))
+plot_proteome_diagnose_H_CMPF_unadj_w1<-Result_table_fdr_diagnose_H_CMPF_unadj_w1 %>%
+  ggplot(aes(x = OR, y = name, color = "black")) + 
+  geom_text(aes(label = if_else(FDR<0.05,"**",
+                                if_else(p.value<0.05,"*","")), hjust = -0.1,vjust =-0.03),size=5)+ 
+  geom_point(size = 2) +
+  geom_errorbar(aes(xmin=CIL, xmax=CIH), width=0.2, cex=0.5)+
+  geom_vline(xintercept=1, linetype = "longdash")+
+  theme_gray()+
+  theme(axis.text.y = element_text(size = 10), panel.grid.minor = element_blank())+
+  geom_text(aes(label = round(Result_table_fdr_diagnose_H_CMPF_unadj_w1$p.value, 4)), size=4,hjust = -0.6,vjust =-0.2, color="black")+
+  ylab("") +
+  xlab("OR") + 
+  ggtitle("Hydroxy-CMPF_diagnose_unjusted")
+plot_proteome_diagnose_H_CMPF_unadj_w1 +
+  theme_bw(base_size = 20)+
+  theme(strip.text.y = element_blank())+ 
+  theme(legend.position="none")+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"))
+#3_CMPFP
+Result_table<- matrix(data=NA, nrow=5, ncol=5)
+colnames(Result_table) <- c("name","OR", "CIL","CIH","p.value")
+#
+Result_table <- as.data.frame(Result_table)
+j <- 1
+
+# Assuming new_all0 has a column named 'PC1' for Principal Component 1
+for (i in 11:15) {
+  # Now, PC1 is the independent variable (x), and each of the other columns from the 7th onwards is treated as a dependent variable (y)
+  x.var <- "3cmpf" # PC1 is used as the independent variable
+  y.var <- names(new_all_w1)[i] # Each of the columns from the 7th onwards is used as the dependent variable
+  my.glm.formula <- as.formula(paste0(y.var, " ~ ", x.var))
+  glm_model <- glm(my.glm.formula, na.action=na.omit, data=new_all_w1,family = binomial())
+  print(summary(glm_model))
+  Result_table[j,1] <- names(new_all_w1)[i] # Metabolite name
+  Result_table[j,2] <- round(exp(coef(glm_model)[2]), 4) # OR (Odds Ratio), assuming you mean the coefficient here
+  ci <- exp(confint(glm_model, level = 0.95)[2, ])# 95% CI for the coefficient
+  Result_table[j,3] <- round(ci[1], 4) # Lower bound of CI
+  Result_table[j,4] <- round(ci[2], 4) # Upper bound of CI
+  Result_table[j,5] <- round(summary(glm_model)$coefficients[2, 4], 4) # P-value for the coefficient of PC1
+  
+  j <- j+1
+}
+
+Result_table_fdr_diagnose_3_CMPFP_unadj_w1<-Result_table%>%
+  mutate(FDR= p.adjust(Result_table$p.value,method="fdr"))
+plot_proteome_diagnose_3_CMPFP_unadj_w1<-Result_table_fdr_diagnose_3_CMPFP_unadj_w1 %>%
+  ggplot(aes(x = OR, y = name, color = "black")) + 
+  geom_text(aes(label = if_else(FDR<0.05,"**",
+                                if_else(p.value<0.05,"*","")), hjust = -0.1,vjust =-0.03),size=5)+ 
+  geom_point(size = 2) +
+  geom_errorbar(aes(xmin=CIL, xmax=CIH), width=0.2, cex=0.5)+
+  geom_vline(xintercept=1, linetype = "longdash")+
+  theme_gray()+
+  theme(axis.text.y = element_text(size = 10), panel.grid.minor = element_blank())+
+  geom_text(aes(label = round(Result_table_fdr_diagnose_3_CMPFP_unadj_w1$p.value, 4)), size=4,hjust = -0.6,vjust =-0.2, color="black")+
+  ylab("") +
+  xlab("OR") + 
+  ggtitle("3-CMPFP_diagnose_unjusted")
+plot_proteome_diagnose_3_CMPFP_unadj_w1 +
+  theme_bw(base_size = 20)+
+  theme(strip.text.y = element_blank())+ 
+  theme(legend.position="none")+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"))
+```
+###adjust diagnose
+```{r}
+#CMPF
+Result_table<- matrix(data=NA, nrow=5, ncol=5)
+colnames(Result_table) <- c("name","OR", "CIL","CIH","p.value")
+#
+Result_table <- as.data.frame(Result_table)
+j <- 1
+
+# Assuming new_all0 has a column named 'PC1' for Principal Component 1
+for (i in 11:15) {
+  # Now, PC1 is the independent variable (x), and each of the other columns from the 7th onwards is treated as a dependent variable (y)
+  x.var <- "cmpf" # PC1 is used as the independent variable
+  y.var <- names(new_all_w1)[i] # Each of the columns from the 7th onwards is used as the dependent variable
+  my.glm.formula <- as.formula(paste0(y.var, " ~ ", x.var,"+ sex+mother_smoking+
+                                        motherage +mother_bmi +ga +birthweight+familyincome_at1week +maternal_education_at1w+ paternal_education_at1w+VD"))
+
+  glm_model <- glm(my.glm.formula, data=new_all_w1,na.action=na.omit,family = binomial())
+  print(summary(glm_model))
+  Result_table[j,1] <- names(new_all_w1)[i] # Metabolite name
+  Result_table[j,2] <- round(exp(coef(glm_model)[2]), 4) # OR (Odds Ratio), assuming you mean the coefficient here
+  ci <- exp(confint(glm_model, level = 0.95)[2, ])# 95% CI for the coefficient
+  Result_table[j,3] <- round(ci[1], 4) # Lower bound of CI
+  Result_table[j,4] <- round(ci[2], 4) # Upper bound of CI
+  Result_table[j,5] <- round(summary(glm_model)$coefficients[2, 4], 4) # P-value for the coefficient of PC1
+  
+  j <- j+1
+}
+
+Result_table_fdr_diagnose_CMPF_adj_w1<-Result_table%>%
+  mutate(FDR= p.adjust(Result_table$p.value,method="fdr"))
+plot_proteome_diagnose_CMPF_adj_w1<-Result_table_fdr_diagnose_CMPF_adj_w1 %>%
+  ggplot(aes(x = OR, y = name, color = "black")) + 
+  geom_text(aes(label = if_else(FDR<0.05,"**",
+                                if_else(p.value<0.05,"*","")), hjust = -0.1,vjust =-0.03),size=5)+ 
+  geom_point(size = 2) +
+  geom_errorbar(aes(xmin=CIL, xmax=CIH), width=0.2, cex=0.5)+
+  geom_vline(xintercept=1, linetype = "longdash")+
+  theme_gray()+
+  theme(axis.text.y = element_text(size = 10), panel.grid.minor = element_blank())+
+  geom_text(aes(label = round(Result_table_fdr_diagnose_CMPF_adj_w1$p.value, 4)), size=4,hjust = -0.6,vjust =-0.2, color="black")+
+  ylab("") +
+  xlab("OR") + 
+  ggtitle("CMPF_diagnose_adjusted")
+plot_proteome_diagnose_CMPF_adj_w1 +
+  theme_bw(base_size = 20)+
+  theme(strip.text.y = element_blank())+ 
+  theme(legend.position="none")+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"))
+#H-CFPF
+Result_table<- matrix(data=NA, nrow=5, ncol=5)
+colnames(Result_table) <- c("name","OR", "CIL","CIH","p.value")
+#
+Result_table <- as.data.frame(Result_table)
+j <- 1
+
+# Assuming new_all0 has a column named 'PC1' for Principal Component 1
+for (i in 11:15) {
+  # Now, PC1 is the independent variable (x), and each of the other columns from the 7th onwards is treated as a dependent variable (y)
+  x.var <- "hcmpf" # PC1 is used as the independent variable
+  y.var <- names(new_all_w1)[i] # Each of the columns from the 7th onwards is used as the dependent variable
+ my.glm.formula <- as.formula(paste0(y.var, " ~ ", x.var,"+ sex+mother_smoking+
+                                        motherage +mother_bmi +ga +birthweight+familyincome_at1week +maternal_education_at1w+ paternal_education_at1w+VD"))
+  glm_model <- glm(my.glm.formula, data=new_all_w1,na.action=na.omit,family = binomial())
+  print(summary(glm_model))
+  Result_table[j,1] <- names(new_all_w1)[i] # Metabolite name
+  Result_table[j,2] <- round(exp(coef(glm_model)[2]), 4) # OR (Odds Ratio), assuming you mean the coefficient here
+  ci <- exp(confint(glm_model, level = 0.95)[2, ])# 95% CI for the coefficient
+  Result_table[j,3] <- round(ci[1], 4) # Lower bound of CI
+  Result_table[j,4] <- round(ci[2], 4) # Upper bound of CI
+  Result_table[j,5] <- round(summary(glm_model)$coefficients[2, 4], 4) # P-value for the coefficient of PC1
+  
+  j <- j+1
+}
+Result_table_fdr_diagnose_H_CMPF_adj_w1<-Result_table%>%
+  mutate(FDR= p.adjust(Result_table$p.value,method="fdr"))
+plot_proteome_diagnose_H_CMPF_adj_w1<-Result_table_fdr_diagnose_H_CMPF_adj_w1 %>%
+  ggplot(aes(x = OR, y = name, color = "black")) + 
+  geom_text(aes(label = if_else(FDR<0.05,"**",
+                                if_else(p.value<0.05,"*","")), hjust = -0.1,vjust =-0.03),size=5)+ 
+  geom_point(size = 2) +
+  geom_errorbar(aes(xmin=CIL, xmax=CIH), width=0.2, cex=0.5)+
+  geom_vline(xintercept=1, linetype = "longdash")+
+  theme_gray()+
+  theme(axis.text.y = element_text(size = 10), panel.grid.minor = element_blank())+
+  geom_text(aes(label = round(Result_table_fdr_diagnose_H_CMPF_adj_w1$p.value, 3)), size=4,hjust = -0.6,vjust =-0.2, color="black")+
+  ylab("") +
+  xlab("OR") + 
+  ggtitle("Hydroxy-CMPF_diagnose_adjusted")
+plot_proteome_diagnose_H_CMPF_adj_w1 +
+  theme_bw(base_size = 20)+
+  theme(strip.text.y = element_blank())+ 
+  theme(legend.position="none")+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"))
+#3_CMPFP
+Result_table<- matrix(data=NA, nrow=5, ncol=5)
+colnames(Result_table) <- c("name","OR", "CIL","CIH","p.value")
+#
+Result_table <- as.data.frame(Result_table)
+j <- 1
+
+# Assuming new_all0 has a column named 'PC1' for Principal Component 1
+for (i in 11:15) {
+  # Now, PC1 is the independent variable (x), and each of the other columns from the 7th onwards is treated as a dependent variable (y)
+  x.var <- "3cmpf" # PC1 is used as the independent variable
+  y.var <- names(new_all_w1)[i] # Each of the columns from the 7th onwards is used as the dependent variable
+  my.glm.formula <- as.formula(paste0(y.var, " ~ ", x.var,"+ sex+mother_smoking+
+                                        motherage +mother_bmi +ga +birthweight+familyincome_at1week +maternal_education_at1w+ paternal_education_at1w+VD"))
+  glm_model <- glm(my.glm.formula, na.action=na.omit,data=new_all_w1,family = binomial())
+  print(summary(glm_model))
+  Result_table[j,1] <- names(new_all_w1)[i] # Metabolite name
+  Result_table[j,2] <- round(exp(coef(glm_model)[2]), 4) # OR (Odds Ratio), assuming you mean the coefficient here
+  ci <- exp(confint(glm_model, level = 0.95)[2, ])# 95% CI for the coefficient
+  Result_table[j,3] <- round(ci[1], 4) # Lower bound of CI
+  Result_table[j,4] <- round(ci[2], 4) # Upper bound of CI
+  Result_table[j,5] <- round(summary(glm_model)$coefficients[2, 4], 4) # P-value for the coefficient of PC1
+  
+  j <- j+1
+}
+
+Result_table_fdr_diagnose_3_CMPFP_adj_w1<-Result_table%>%
+  mutate(FDR= p.adjust(Result_table$p.value,method="fdr"))
+plot_proteome_diagnose_3_CMPFP_adj_w1<-Result_table_fdr_diagnose_3_CMPFP_adj_w1 %>%
+  ggplot(aes(x = OR, y = name, color = "black")) + 
+  geom_text(aes(label = if_else(FDR<0.05,"**",
+                                if_else(p.value<0.05,"*","")), hjust = -0.1,vjust =-0.03),size=5)+ 
+  geom_point(size = 2) +
+  geom_errorbar(aes(xmin=CIL, xmax=CIH), width=0.2, cex=0.5)+
+  geom_vline(xintercept=1, linetype = "longdash")+
+  theme_gray()+
+  theme(axis.text.y = element_text(size = 10), panel.grid.minor = element_blank())+
+  geom_text(aes(label = round(Result_table_fdr_diagnose_3_CMPFP_adj_w1$p.value, 4)), size=4,hjust = -0.6,vjust =-0.2, color="black")+
+  ylab("") +
+  xlab("OR") + 
+  ggtitle("3-CMPFP_diagnose_adjusted_w1")
+plot_proteome_diagnose_3_CMPFP_adj_w1 +
+  theme_bw(base_size = 20)+
+  theme(strip.text.y = element_blank())+ 
+  theme(legend.position="none")+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"))
+```
+
+
+
+```{r}
+#unadjust
+diagnoses_unadj<-bind_rows(
+  mutate(Result_table_fdr_diagnose_CMPF_unadj_w1, Metabolites = "CMPF"),
+  mutate(Result_table_fdr_diagnose_H_CMPF_unadj_w1,  Metabolites = "Hydroxy-CMPF"),
+  mutate(Result_table_fdr_diagnose_3_CMPFP_unadj_w1,  Metabolites = "3-CMPFP")
+)
+replacements <- setNames(c("Autism","ADHD Inattentive","ADHD Combined","ADHD","Any NDDs"), c("asd", "adhd_inattention","adhd_ih","adhd","neu_dev"))
+diagnoses_unadj$name <- with(diagnoses_unadj, ifelse(name %in% names(replacements), replacements[name], name))
+name_order <- c("ADHD Combined","ADHD Inattentive", "ADHD", "Autism","Any NDDs")
+
+diagnoses_unadj<-diagnoses_unadj[,c(-6)]
+diagnoses_unadj$Level <- dplyr::case_when(
+  diagnoses_unadj$name == "Any NDDs" ~ 1,
+  diagnoses_unadj$name %in% c("ADHD", "Autism") ~ 2,
+  diagnoses_unadj$name %in% c("ADHD Inattentive", "ADHD Combined") ~ 3,
+  TRUE ~ NA_real_
+)
+diagnoses_unadj$P_fdr <- p.adjust(diagnoses_unadj$p.value, method = "fdr")
+diagnoses_unadj
+diagnoses_unadj<-mutate(diagnoses_unadj, adjustment= "unadjusted")
+
+diagnoses_unadj1 <- data.frame(
+  name = diagnoses_unadj$name,
+  Metabolites=diagnoses_unadj$Metabolites,
+  diagnoses_unadj = sprintf("%.2f [%.2f - %.2f] (P = %.4f, P.fdr=%.4f)",diagnoses_unadj$OR, diagnoses_unadj$CIL, diagnoses_unadj$CIH, diagnoses_unadj$p.value,diagnoses_unadj$P_fdr)
+)
+
+#adjust
+diagnoses_adj<-bind_rows(
+  mutate(Result_table_fdr_diagnose_CMPF_adj_w1, Metabolites = "CMPF"),
+  mutate(Result_table_fdr_diagnose_H_CMPF_adj_w1,  Metabolites = "Hydroxy-CMPF"),
+  mutate(Result_table_fdr_diagnose_3_CMPFP_adj_w1,  Metabolites = "3-CMPFP")
+)
+replacements <- setNames(c("Autism","ADHD Inattentive","ADHD Combined","ADHD","Any NDDs"), c("asd", "adhd_inattention","adhd_ih","adhd","neu_dev"))
+diagnoses_adj$name <- with(diagnoses_adj, ifelse(name %in% names(replacements), replacements[name], name))
+name_order <- c("ADHD Combined","ADHD Inattentive", "ADHD", "Autism","Any NDDs")
+diagnoses_adj<-diagnoses_adj[,c(-6)]
+diagnoses_adj$Level <- dplyr::case_when(
+  diagnoses_adj$name == "Any NDDs" ~ 1,
+  diagnoses_adj$name %in% c("ADHD", "Autism") ~ 2,
+  diagnoses_adj$name %in% c("ADHD Inattentive", "ADHD Combined") ~ 3,
+  TRUE ~ NA_real_
+)
+diagnoses_adj$P.fdr <- p.adjust(diagnoses_adj$p.value, method = "fdr")
+diagnoses_adj
+diagnoses_adj<-mutate(diagnoses_adj, adjustment= "adjusted")
+diagnoses_adj1 <- data.frame(
+  name = diagnoses_adj$name,
+  Metabolites=diagnoses_adj$Metabolites,
+  Level=diagnoses_adj$Level,
+  diagnoses_adj = sprintf("%.2f [%.2f - %.2f] (P = %.4f, P.fdr=%.4f)",diagnoses_adj$OR, diagnoses_adj$CIL, diagnoses_adj$CIH, diagnoses_adj$p.value,diagnoses_adj$P.fdr)
+)
+```
+
+Hydroxy-CMPF diagnose
+```{r}
+combined_dataset_diag_diagnose_H_CMPF_w1<-bind_rows(
+  mutate(Result_table_fdr_diagnose_H_CMPF_unadj_w1, Adjustment = "Unadjusted"),
+  mutate(Result_table_fdr_diagnose_H_CMPF_adj_w1, Adjustment = "Adjusted"),
+)
+
+replacements <- setNames(c("Autism","ADHD Inattentive","ADHD Combined","ADHD","Any NDDs"), c("asd", "adhd_inattention","adhd_ih","adhd","neu_dev"))
+combined_dataset_diag_diagnose_H_CMPF_w1$name <- with(combined_dataset_diag_diagnose_H_CMPF_w1, ifelse(name %in% names(replacements), replacements[name], name))
+
+name_order <- c("ADHD Combined","ADHD Inattentive", "ADHD", "Autism","Any NDDs")
+combined_dataset_diag_diagnose_H_CMPF1_w1 <- combined_dataset_diag_diagnose_H_CMPF_w1 %>%
+  mutate(name = factor(name, levels = name_order),
+         Adjustment = factor(Adjustment, levels = method_order))
+# Your existing ggplot code with the addition of reversing the legend order
+hcmpf_psy_w1 <- ggplot(combined_dataset_diag_diagnose_H_CMPF1_w1, aes(x = OR, y = name, color = Adjustment)) +
+  geom_errorbar(aes(xmin = CIL, xmax = CIH), width = 0.2, size = 1.2, position = position_dodge(width = dodge_width)) +
+  geom_point(position = position_dodge(width = dodge_width), size = 4) +
+  geom_text(aes(x = CIH + text_offset, 
+                label = if_else(p.value< 0.001, 
+                                paste("** (", formatC(p.value, format = "e", digits = 1), ")", sep = ""),  # Scientific notation for p < 0.001
+                                if_else(FDR< 0.05, 
+                                        paste("** (", sub("^0\\.", ".", format(round(p.value, 3), nsmall = 3)), ")", sep = ""),  # Three digits if p < 0.01
+                                        if_else(p.value < 0.05, 
+                                                paste("* (", sub("^0\\.", ".", format(round(p.value, 2), nsmall = 2)), ")", sep = ""),  # Two digits for 0.01 ≤ p < 0.05
+                                                if_else(p.value < 0.2,
+                                                        paste(". (", sub("^0\\.", ".", format(round(p.value, 2), nsmall = 2)), ")", sep = ""),  # Two digits for 0.05 ≤ p < 0.1 with "."
+                                                        "")))),  # Hide p-values for p >= 0.1
+                hjust = -0.1), size = 4.5, position = position_dodge(width = dodge_width)) +
+  geom_vline(xintercept = 1, linetype = "longdash") +
+  scale_color_manual(values = c("#345d67", "#f09308")) +
+  theme_bw(base_size = 12) +
+  theme(axis.text.y = element_text(size = 12),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.line = element_line(colour = "black"),
+        legend.position = "right") +
+  ylab("") +
+  xlab("OR") +
+  ggtitle("Hydroxy-CMPF and NDD week 1") +
+  guides(color = guide_legend(reverse = TRUE))
+
+hcmpf_psy_w1
+
+```
+CMPF
+```{r}
+combined_dataset_diag2_CMPF_w1<-bind_rows(
+  mutate(Result_table_fdr_diagnose_CMPF_unadj_w1, Adjustment = "Unadjusted"),
+  mutate(Result_table_fdr_diagnose_CMPF_adj_w1, Adjustment = "Adjusted"),
+)
+
+replacements <- setNames(c("Autism","ADHD Inattentive","ADHD Combined","ADHD","Any NDDs"), c("asd", "adhd_inattention","adhd_ih","adhd","neu_dev"))
+combined_dataset_diag2_CMPF_w1$name <- with(combined_dataset_diag2_CMPF_w1, ifelse(name %in% names(replacements), replacements[name], name))
+
+
+name_order <- c("ADHD Combined","ADHD Inattentive", "ADHD", "Autism","Any NDDs")
+combined_dataset_diag2_CMPF_w1_2<- combined_dataset_diag2_CMPF_w1 %>%
+  mutate(name = factor(name, levels = name_order),
+         Adjustment = factor(Adjustment, levels = method_order))
+
+cmpf_psy_w1<-ggplot(combined_dataset_diag2_CMPF_w1_2, aes(x = OR, y = name, color = Adjustment)) +
+  geom_errorbar(aes(xmin = CIL, xmax = CIH), width = 0.2, size = 1.2, position = position_dodge(width = dodge_width)) +
+  geom_point(position = position_dodge(width = dodge_width), size = 4) +
+  geom_text(aes(x = CIH + text_offset, 
+                label = if_else(p.value< 0.001, 
+                                paste("** (", formatC(p.value, format = "e", digits = 1), ")", sep = ""),  # Scientific notation for p < 0.001
+                                if_else(FDR < 0.05, 
+                                        paste("** (", sub("^0\\.", ".", format(round(p.value, 3), nsmall = 3)), ")", sep = ""),  # Three digits if p < 0.01
+                                        if_else(p.value < 0.05, 
+                                                paste("* (", sub("^0\\.", ".", format(round(p.value, 2), nsmall = 2)), ")", sep = ""),  # Two digits for 0.01 ≤ p < 0.05
+                                                if_else(p.value < 0.2,
+                                                        paste(". (", sub("^0\\.", ".", format(round(p.value, 2), nsmall = 2)), ")", sep = ""),  # Two digits for 0.05 ≤ p < 0.1 with "."
+                                                        "")))),  # Hide p-values for p >= 0.1
+                hjust = -0.1), size = 4.5, position = position_dodge(width = dodge_width)) +
+  geom_vline(xintercept = 1, linetype = "longdash") +
+  scale_color_manual(values = c("#345d67", "#f09308")) +
+  theme_bw(base_size = 12) +
+  theme(axis.text.y = element_text(size = 12),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.line = element_line(colour = "black"),
+        legend.position = "right") +
+  ylab("") +
+  xlab("OR") +
+  ggtitle("CMPF and NDD week 1") +
+  guides(color = guide_legend(reverse = TRUE))
+
+cmpf_psy_w1
+```
+
+3-CMPFP
+```{r}
+combined_dataset_diag_3CMPFP_w1<-bind_rows(
+  mutate(Result_table_fdr_diagnose_3_CMPFP_unadj_w1, Adjustment = "Unadjusted"),
+  mutate(Result_table_fdr_diagnose_3_CMPFP_adj_w1, Adjustment = "Adjusted"),
+)
+
+replacements <- setNames(c("Autism","ADHD Inattentive","ADHD Combined","ADHD","Any NDDs"), c("asd", "adhd_inattention","adhd_ih","adhd","neu_dev"))
+combined_dataset_diag_3CMPFP_w1$name <- with(combined_dataset_diag_3CMPFP_w1, ifelse(name %in% names(replacements), replacements[name], name))
+
+
+name_order <- c("ADHD Combined","ADHD Inattentive", "ADHD", "Autism","Any NDDs")
+combined_dataset_diag_3CMPFP_w1_2 <- combined_dataset_diag_3CMPFP_w1 %>%
+  mutate(name = factor(name, levels = name_order),
+         Adjustment = factor(Adjustment, levels = method_order))
+save(combined_dataset_diag_3CMPFP_w1_2, file="~/Library/CloudStorage/GoogleDrive-ting.wang@dbac.dk/My Drive/CMPF/CMPF and NDD/manuscript/Submit/W1/without RCT/combined_dataset_diag_3CMPFP_w1_2.Rdata")
+# Your existing ggplot code with the addition of reversing the legend order
+cmpfp3_psy_w1<-ggplot(combined_dataset_diag_3CMPFP_w1_2, aes(x = OR, y = name, color = Adjustment)) +
+  geom_errorbar(aes(xmin = CIL, xmax = CIH), width = 0.2, size = 1.2, position = position_dodge(width = dodge_width)) +
+  geom_point(position = position_dodge(width = dodge_width), size = 4) +
+  geom_text(aes(x = CIH + text_offset, 
+                label = if_else(p.value< 0.001, 
+                                paste("** (", formatC(p.value, format = "e", digits = 1), ")", sep = ""),  # Scientific notation for p < 0.001
+                                if_else(FDR< 0.05, 
+                                        paste("** (", sub("^0\\.", ".", format(round(p.value, 3), nsmall = 3)), ")", sep = ""),  # Three digits if p < 0.01
+                                        if_else(p.value < 0.05, 
+                                                paste("* (", sub("^0\\.", ".", format(round(p.value, 2), nsmall = 2)), ")", sep = ""),  # Two digits for 0.01 ≤ p < 0.05
+                                                if_else(p.value < 0.2,
+                                                        paste(". (", sub("^0\\.", ".", format(round(p.value, 2), nsmall = 2)), ")", sep = ""),  # Two digits for 0.05 ≤ p < 0.1 with "."
+                                                        "")))),  # Hide p-values for p >= 0.1
+                hjust = -0.1), size = 4.5, position = position_dodge(width = dodge_width)) +
+  geom_vline(xintercept = 1, linetype = "longdash") +
+  scale_color_manual(values = c("#345d67", "#f09308")) +
+  theme_bw(base_size = 12) +
+  theme(axis.text.y = element_text(size = 12),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.line = element_line(colour = "black"),
+        legend.position = "right") +
+  ylab("") +
+  xlab("OR") +
+  ggtitle("3-CMPFP and NDD week 1") +
+  guides(color = guide_legend(reverse = TRUE))
+cmpfp3_psy_w1
+```
+ merged
+```{r}
+combined_plot_w1 <- ggarrange(
+cmpf_psy_w1,
+  hcmpf_psy_w1,
+ cmpfp3_psy_w1,
+  w1_NDDS_CMPF1,
+  W1_NDD_HCMPF1,
+W1_NDD_3CMPFP1,
+  ncol = 3, nrow = 2,
+  align = "hv",             # Align both horizontal and vertical axes
+  common.legend = TRUE,     # Share the legend among plots
+  legend = "right",         # Position the legend on the right side
+  labels = c("a", "b", "c","d", "e", "f"), # Labels for subplots
+  label.x = 0.1,            # Adjust horizontal position of labels
+  label.y = 1.0,            # Adjust vertical position of labels
+  font.label = list(size = 14, face = "bold") # Font size and style for labels
+)
+# Print the combined plot
+print(combined_plot_w1)
+```
+ STRATA unadjust
+```{r}
+####strata diagnose
+###unadjust
+Result_table<- matrix(data=NA, nrow=5, ncol=5)
+colnames(Result_table) <- c("name","OR", "CIL","CIH","p.value")
+#
+Result_table <- as.data.frame(Result_table)
+j <- 1
+# Assuming new_all0 has a column named 'PC1' for Principal Component 1
+for (i in 11:15) {
+  # Now, PC1 is the independent variable (x), and each of the other columns from the 7th onwards is treated as a dependent variable (y)
+  x.var <- "cmpf" # PC1 is used as the independent variable
+  y.var <- names(new_all_w1_low)[i] # Each of the columns from the 7th onwards is used as the dependent variable
+  my.glm.formula <- as.formula(paste0(y.var, " ~ ", x.var))
+  glm_model <- glm(my.glm.formula, na.action=na.omit, data=new_all_w1_low,family = binomial())
+  print(summary(glm_model))
+  Result_table[j,1] <- names(new_all_w1_low)[i] # Metabolite name
+  Result_table[j,2] <- round(exp(coef(glm_model)[2]), 4) # OR (Odds Ratio), assuming you mean the coefficient here
+  ci <- exp(confint(glm_model, level = 0.95)[2, ])# 95% CI for the coefficient
+  Result_table[j,3] <- round(ci[1], 4) # Lower bound of CI
+  Result_table[j,4] <- round(ci[2], 4) # Upper bound of CI
+  Result_table[j,5] <- round(summary(glm_model)$coefficients[2, 4], 10) # P-value for the coefficient of PC1
+  
+  j <- j+1
+}
+
+Result_table_fdr_diagnose_CMPF_unadj_w1_low<-Result_table%>%
+  mutate(FDR= p.adjust(Result_table$p.value,method="fdr"))
+#Placebo
+Result_table<- matrix(data=NA, nrow=5, ncol=5)
+colnames(Result_table) <- c("name","OR", "CIL","CIH","p.value")
+#
+Result_table <- as.data.frame(Result_table)
+j <- 1
+# Assuming new_all0 has a column named 'PC1' for Principal Component 1
+for (i in 11:15) {
+  # Now, PC1 is the independent variable (x), and each of the other columns from the 7th onwards is treated as a dependent variable (y)
+  x.var <- "cmpf" # PC1 is used as the independent variable
+  y.var <- names(new_all_w1_high)[i] # Each of the columns from the 7th onwards is used as the dependent variable
+  my.glm.formula <- as.formula(paste0(y.var, " ~ ", x.var))
+  glm_model <- glm(my.glm.formula, na.action=na.omit, data=new_all_w1_high,family = binomial())
+  print(summary(glm_model))
+  Result_table[j,1] <- names(new_all_w1_high)[i] # Metabolite name
+  Result_table[j,2] <- round(exp(coef(glm_model)[2]), 4) # OR (Odds Ratio), assuming you mean the coefficient here
+  ci <- exp(confint(glm_model, level = 0.95)[2, ])# 95% CI for the coefficient
+  Result_table[j,3] <- round(ci[1], 4) # Lower bound of CI
+  Result_table[j,4] <- round(ci[2], 4) # Upper bound of CI
+  Result_table[j,5] <- round(summary(glm_model)$coefficients[2, 4], 10) # P-value for the coefficient of PC1
+  
+  j <- j+1
+}
+
+Result_table_fdr_diagnose_CMPF_unadj_w1_high<-Result_table%>%
+  mutate(FDR= p.adjust(Result_table$p.value,method="fdr"))
+Result_table_fdr_diagnose_CMPF_unadj_w1_high
+
+#H-CFPF placebo
+Result_table<- matrix(data=NA, nrow=5, ncol=5)
+colnames(Result_table) <- c("name","OR", "CIL","CIH","p.value")
+#
+Result_table <- as.data.frame(Result_table)
+j <- 1
+
+# Assuming new_all0 has a column named 'PC1' for Principal Component 1
+for (i in 11:15) {
+  # Now, PC1 is the independent variable (x), and each of the other columns from the 7th onwards is treated as a dependent variable (y)
+  x.var <- "hcmpf" # PC1 is used as the independent variable
+  y.var <- names(new_all_w1_low)[i] # Each of the columns from the 7th onwards is used as the dependent variable
+  my.glm.formula <- as.formula(paste0(y.var, " ~ ", x.var))
+  glm_model <- glm(my.glm.formula, na.action=na.omit,data=new_all_w1_low,family = binomial())
+  print(summary(glm_model))
+  Result_table[j,1] <- names(new_all_w1_low)[i] # Metabolite name
+  Result_table[j,2] <- round(exp(coef(glm_model)[2]), 4) # OR (Odds Ratio), assuming you mean the coefficient here
+  ci <- exp(confint(glm_model, level = 0.95)[2, ])# 95% CI for the coefficient
+  Result_table[j,3] <- round(ci[1], 4) # Lower bound of CI
+  Result_table[j,4] <- round(ci[2], 4) # Upper bound of CI
+  Result_table[j,5] <- round(summary(glm_model)$coefficients[2, 4], 4) # P-value for the coefficient of PC1
+  
+  j <- j+1
+}
+
+Result_table_fdr_diagnose_H_CMPF_unadj_w1_low<-Result_table%>%
+  mutate(FDR= p.adjust(Result_table$p.value,method="fdr"))
+##HCMPF RCT
+Result_table<- matrix(data=NA, nrow=5, ncol=5)
+colnames(Result_table) <- c("name","OR", "CIL","CIH","p.value")
+#
+Result_table <- as.data.frame(Result_table)
+j <- 1
+
+# Assuming new_all0 has a column named 'PC1' for Principal Component 1
+for (i in 11:15) {
+  # Now, PC1 is the independent variable (x), and each of the other columns from the 7th onwards is treated as a dependent variable (y)
+  x.var <- "hcmpf" # PC1 is used as the independent variable
+  y.var <- names(new_all_w1_high)[i] # Each of the columns from the 7th onwards is used as the dependent variable
+  my.glm.formula <- as.formula(paste0(y.var, " ~ ", x.var))
+  glm_model <- glm(my.glm.formula, na.action=na.omit,data=new_all_w1_high,family = binomial())
+  print(summary(glm_model))
+  Result_table[j,1] <- names(new_all_w1_high)[i] # Metabolite name
+  Result_table[j,2] <- round(exp(coef(glm_model)[2]), 4) # OR (Odds Ratio), assuming you mean the coefficient here
+  ci <- exp(confint(glm_model, level = 0.95)[2, ])# 95% CI for the coefficient
+  Result_table[j,3] <- round(ci[1], 4) # Lower bound of CI
+  Result_table[j,4] <- round(ci[2], 4) # Upper bound of CI
+  Result_table[j,5] <- round(summary(glm_model)$coefficients[2, 4], 4) # P-value for the coefficient of PC1
+  
+  j <- j+1
+}
+
+Result_table_fdr_diagnose_H_CMPF_unadj_w1_high<-Result_table%>%
+  mutate(FDR= p.adjust(Result_table$p.value,method="fdr"))
+Result_table_fdr_diagnose_H_CMPF_unadj_w1_high
+#3_CMPFP RCT
+Result_table<- matrix(data=NA, nrow=5, ncol=5)
+colnames(Result_table) <- c("name","OR", "CIL","CIH","p.value")
+#
+Result_table <- as.data.frame(Result_table)
+j <- 1
+
+# Assuming new_all0 has a column named 'PC1' for Principal Component 1
+for (i in 11:15) {
+  # Now, PC1 is the independent variable (x), and each of the other columns from the 7th onwards is treated as a dependent variable (y)
+  x.var <- "3cmpf" # PC1 is used as the independent variable
+  y.var <- names(new_all_w1_high)[i] # Each of the columns from the 7th onwards is used as the dependent variable
+  my.glm.formula <- as.formula(paste0(y.var, " ~ ", x.var))
+  glm_model <- glm(my.glm.formula, na.action=na.omit, data=new_all_w1_high,family = binomial())
+  print(summary(glm_model))
+  Result_table[j,1] <- names(new_all_w1_high)[i] # Metabolite name
+  Result_table[j,2] <- round(exp(coef(glm_model)[2]), 4) # OR (Odds Ratio), assuming you mean the coefficient here
+  ci <- exp(confint(glm_model, level = 0.95)[2, ])# 95% CI for the coefficient
+  Result_table[j,3] <- round(ci[1], 4) # Lower bound of CI
+  Result_table[j,4] <- round(ci[2], 4) # Upper bound of CI
+  Result_table[j,5] <- round(summary(glm_model)$coefficients[2, 4], 4) # P-value for the coefficient of PC1
+  
+  j <- j+1
+}
+
+Result_table_fdr_diagnose_3_CMPFP_unadj_w1_high<-Result_table%>%
+  mutate(FDR= p.adjust(Result_table$p.value,method="fdr"))
+Result_table_fdr_diagnose_3_CMPFP_unadj_w1_high
+#3CMPFP PLACEBO
+Result_table<- matrix(data=NA, nrow=5, ncol=5)
+colnames(Result_table) <- c("name","OR", "CIL","CIH","p.value")
+#
+Result_table <- as.data.frame(Result_table)
+j <- 1
+
+# Assuming new_all0 has a column named 'PC1' for Principal Component 1
+for (i in 11:15) {
+  # Now, PC1 is the independent variable (x), and each of the other columns from the 7th onwards is treated as a dependent variable (y)
+  x.var <- "3cmpf" # PC1 is used as the independent variable
+  y.var <- names(new_all_w1_high)[i] # Each of the columns from the 7th onwards is used as the dependent variable
+  my.glm.formula <- as.formula(paste0(y.var, " ~ ", x.var))
+  glm_model <- glm(my.glm.formula, na.action=na.omit, data=new_all_w1_high,family = binomial())
+  print(summary(glm_model))
+  Result_table[j,1] <- names(new_all_w1_high)[i] # Metabolite name
+  Result_table[j,2] <- round(exp(coef(glm_model)[2]), 4) # OR (Odds Ratio), assuming you mean the coefficient here
+  ci <- exp(confint(glm_model, level = 0.95)[2, ])# 95% CI for the coefficient
+  Result_table[j,3] <- round(ci[1], 4) # Lower bound of CI
+  Result_table[j,4] <- round(ci[2], 4) # Upper bound of CI
+  Result_table[j,5] <- round(summary(glm_model)$coefficients[2, 4], 4) # P-value for the coefficient of PC1
+  
+  j <- j+1
+}
+
+Result_table_fdr_diagnose_3_CMPFP_unadj_w1_high<-Result_table%>%
+  mutate(FDR= p.adjust(Result_table$p.value,method="fdr"))
+Result_table_fdr_diagnose_3_CMPFP_unadj_w1_high
+```
+###adjust diagnos
+```{r}
+Result_table<- matrix(data=NA, nrow=5, ncol=5)
+colnames(Result_table) <- c("name","OR", "CIL","CIH","p.value")
+#
+Result_table <- as.data.frame(Result_table)
+j <- 1
+# Assuming new_all0 has a column named 'PC1' for Principal Component 1
+for (i in 11:15) {
+  # Now, PC1 is the independent variable (x), and each of the other columns from the 7th onwards is treated as a dependent variable (y)
+  x.var <- "cmpf" # PC1 is used as the independent variable
+  y.var <- names(new_all_w1_high)[i] # Each of the columns from the 7th onwards is used as the dependent variable
+   my.glm.formula <- as.formula(paste0(y.var, " ~ ", x.var,"+ sex+mother_smoking+
+                                        motherage +mother_bmi +ga +birthweight+familyincome_at1week +maternal_education_at1w+ paternal_education_at1w+VD"))
+  glm_model <- glm(my.glm.formula, na.action=na.omit, data=new_all_w1_high,family = binomial())
+  print(summary(glm_model))
+  Result_table[j,1] <- names(new_all_w1_high)[i] # Metabolite name
+  Result_table[j,2] <- round(exp(coef(glm_model)[2]), 4) # OR (Odds Ratio), assuming you mean the coefficient here
+  ci <- exp(confint(glm_model, level = 0.95)[2, ])# 95% CI for the coefficient
+  Result_table[j,3] <- round(ci[1], 4) # Lower bound of CI
+  Result_table[j,4] <- round(ci[2], 4) # Upper bound of CI
+  Result_table[j,5] <- round(summary(glm_model)$coefficients[2, 4], 10) # P-value for the coefficient of PC1
+  
+  j <- j+1
+}
+
+Result_table_fdr_diagnose_CMPF_adj_w1_high<-Result_table%>%
+  mutate(FDR= p.adjust(Result_table$p.value,method="fdr"))
+Result_table_fdr_diagnose_CMPF_adj_w1_high
+#Placebo
+Result_table<- matrix(data=NA, nrow=5, ncol=5)
+colnames(Result_table) <- c("name","OR", "CIL","CIH","p.value")
+#
+Result_table <- as.data.frame(Result_table)
+j <- 1
+# Assuming new_all0 has a column named 'PC1' for Principal Component 1
+for (i in 11:15) {
+  # Now, PC1 is the independent variable (x), and each of the other columns from the 7th onwards is treated as a dependent variable (y)
+  x.var <- "cmpf" # PC1 is used as the independent variable
+  y.var <- names(new_all_w1_low)[i] # Each of the columns from the 7th onwards is used as the dependent variable
+  my.glm.formula <- as.formula(paste0(y.var, " ~ ", x.var,"+ sex+mother_smoking+
+                                        motherage +mother_bmi +ga +birthweight+familyincome_at1week +maternal_education_at1w+ paternal_education_at1w+VD"))
+  glm_model <- glm(my.glm.formula, na.action=na.omit, data=new_all_w1_low,family = binomial())
+  print(summary(glm_model))
+  Result_table[j,1] <- names(new_all_w1_low)[i] # Metabolite name
+  Result_table[j,2] <- round(exp(coef(glm_model)[2]), 4) # OR (Odds Ratio), assuming you mean the coefficient here
+  ci <- exp(confint(glm_model, level = 0.95)[2, ])# 95% CI for the coefficient
+  Result_table[j,3] <- round(ci[1], 4) # Lower bound of CI
+  Result_table[j,4] <- round(ci[2], 4) # Upper bound of CI
+  Result_table[j,5] <- round(summary(glm_model)$coefficients[2, 4], 10) # P-value for the coefficient of PC1
+  
+  j <- j+1
+}
+
+Result_table_fdr_diagnose_CMPF_adj_w1_low<-Result_table%>%
+  mutate(FDR= p.adjust(Result_table$p.value,method="fdr"))
+Result_table_fdr_diagnose_CMPF_adj_w1_low
+#H-CFPF placebo
+Result_table<- matrix(data=NA, nrow=5, ncol=5)
+colnames(Result_table) <- c("name","OR", "CIL","CIH","p.value")
+#
+Result_table <- as.data.frame(Result_table)
+j <- 1
+
+# Assuming new_all0 has a column named 'PC1' for Principal Component 1
+for (i in 11:15) {
+  # Now, PC1 is the independent variable (x), and each of the other columns from the 7th onwards is treated as a dependent variable (y)
+  x.var <- "hcmpf" # PC1 is used as the independent variable
+  y.var <- names(new_all_w1_low)[i] # Each of the columns from the 7th onwards is used as the dependent variable
+ my.glm.formula <- as.formula(paste0(y.var, " ~ ", x.var,"+ sex+mother_smoking+
+                                        motherage +mother_bmi +ga +birthweight+familyincome_at1week +maternal_education_at1w+ paternal_education_at1w+VD"))#"+ sex+
+                                       # motherage +mother_bmi shi'jin't+ga +birthweight+familyincome_at1week +maternal_education_at1w+ paternal_education_at1w+VD"
+  glm_model <- glm(my.glm.formula, na.action=na.omit,data=new_all_w1_low,family = binomial())
+  print(summary(glm_model))
+  Result_table[j,1] <- names(new_all_w1_low)[i] # Metabolite name
+  Result_table[j,2] <- round(exp(coef(glm_model)[2]), 4) # OR (Odds Ratio), assuming you mean the coefficient here
+  ci <- exp(confint(glm_model, level = 0.95)[2, ])# 95% CI for the coefficient
+  Result_table[j,3] <- round(ci[1], 4) # Lower bound of CI
+  Result_table[j,4] <- round(ci[2], 4) # Upper bound of CI
+  Result_table[j,5] <- round(summary(glm_model)$coefficients[2, 4], 4) # P-value for the coefficient of PC1
+  
+  j <- j+1
+}
+
+Result_table_fdr_diagnose_H_CMPF_adj_w1_low<-Result_table%>%
+  mutate(FDR= p.adjust(Result_table$p.value,method="fdr"))
+Result_table_fdr_diagnose_H_CMPF_adj_w1_low
+##HCMPF RCT
+Result_table<- matrix(data=NA, nrow=5, ncol=5)
+colnames(Result_table) <- c("name","OR", "CIL","CIH","p.value")
+#
+Result_table <- as.data.frame(Result_table)
+j <- 1
+
+# Assuming new_all0 has a column named 'PC1' for Principal Component 1
+for (i in 11:15) {
+  # Now, PC1 is the independent variable (x), and each of the other columns from the 7th onwards is treated as a dependent variable (y)
+  x.var <- "hcmpf" # PC1 is used as the independent variable
+  y.var <- names(new_all_w1_high)[i] # Each of the columns from the 7th onwards is used as the dependent variable
+   my.glm.formula <- as.formula(paste0(y.var, " ~ ", x.var,"+ sex+mother_smoking+
+                                        motherage +mother_bmi +ga +birthweight+familyincome_at1week +maternal_education_at1w+ paternal_education_at1w+VD"))
+  glm_model <- glm(my.glm.formula, na.action=na.omit,data=new_all_w1_high,family = binomial())
+  print(summary(glm_model))
+  Result_table[j,1] <- names(new_all_w1_high)[i] # Metabolite name
+  Result_table[j,2] <- round(exp(coef(glm_model)[2]), 4) # OR (Odds Ratio), assuming you mean the coefficient here
+  ci <- exp(confint(glm_model, level = 0.95)[2, ])# 95% CI for the coefficient
+  Result_table[j,3] <- round(ci[1], 4) # Lower bound of CI
+  Result_table[j,4] <- round(ci[2], 4) # Upper bound of CI
+  Result_table[j,5] <- round(summary(glm_model)$coefficients[2, 4], 4) # P-value for the coefficient of PC1
+  
+  j <- j+1
+}
+
+Result_table_fdr_diagnose_H_CMPF_adj_w1_high<-Result_table%>%
+  mutate(FDR= p.adjust(Result_table$p.value,method="fdr"))
+Result_table_fdr_diagnose_H_CMPF_adj_w1_high
+#3_CMPFP RCT
+Result_table<- matrix(data=NA, nrow=5, ncol=5)
+colnames(Result_table) <- c("name","OR", "CIL","CIH","p.value")
+#
+Result_table <- as.data.frame(Result_table)
+j <- 1
+
+# Assuming new_all0 has a column named 'PC1' for Principal Component 1
+for (i in 11:15) {
+  # Now, PC1 is the independent variable (x), and each of the other columns from the 7th onwards is treated as a dependent variable (y)
+  x.var <- "3cmpf" # PC1 is used as the independent variable
+  y.var <- names(new_all_w1_high)[i] # Each of the columns from the 7th onwards is used as the dependent variable
+   my.glm.formula <- as.formula(paste0(y.var, " ~ ", x.var,"+ sex+mother_smoking+
+                                        motherage +mother_bmi +ga +birthweight+familyincome_at1week +maternal_education_at1w+ paternal_education_at1w+VD"))
+  glm_model <- glm(my.glm.formula, na.action=na.omit, data=new_all_w1_high,family = binomial())
+  print(summary(glm_model))
+  Result_table[j,1] <- names(new_all_w1_high)[i] # Metabolite name
+  Result_table[j,2] <- round(exp(coef(glm_model)[2]), 4) # OR (Odds Ratio), assuming you mean the coefficient here
+  ci <- exp(confint(glm_model, level = 0.95)[2, ])# 95% CI for the coefficient
+  Result_table[j,3] <- round(ci[1], 4) # Lower bound of CI
+  Result_table[j,4] <- round(ci[2], 4) # Upper bound of CI
+  Result_table[j,5] <- round(summary(glm_model)$coefficients[2, 4], 4) # P-value for the coefficient of PC1
+  
+  j <- j+1
+}
+
+Result_table_fdr_diagnose_3_CMPFP_adj_w1_high<-Result_table%>%
+  mutate(FDR= p.adjust(Result_table$p.value,method="fdr"))
+Result_table_fdr_diagnose_3_CMPFP_adj_w1_high
+#3CMPFP PLACEBO
+Result_table<- matrix(data=NA, nrow=5, ncol=5)
+colnames(Result_table) <- c("name","OR", "CIL","CIH","p.value")
+#
+Result_table <- as.data.frame(Result_table)
+j <- 1
+
+# Assuming new_all0 has a column named 'PC1' for Principal Component 1
+for (i in 11:15) {
+  # Now, PC1 is the independent variable (x), and each of the other columns from the 7th onwards is treated as a dependent variable (y)
+  x.var <- "3cmpf" # PC1 is used as the independent variable
+  y.var <- names(new_all_w1_low)[i] # Each of the columns from the 7th onwards is used as the dependent variable
+  my.glm.formula <- as.formula(paste0(y.var, " ~ ", x.var,"+ sex+mother_smoking+
+                                        motherage +mother_bmi +ga +birthweight+familyincome_at1week +maternal_education_at1w+ paternal_education_at1w+VD"))
+  glm_model <- glm(my.glm.formula, na.action=na.omit, data=new_all_w1_low,family = binomial())
+  print(summary(glm_model))
+  Result_table[j,1] <- names(new_all_w1_low)[i] # Metabolite name
+  Result_table[j,2] <- round(exp(coef(glm_model)[2]), 4) # OR (Odds Ratio), assuming you mean the coefficient here
+  ci <- exp(confint(glm_model, level = 0.95)[2, ])# 95% CI for the coefficient
+  Result_table[j,3] <- round(ci[1], 4) # Lower bound of CI
+  Result_table[j,4] <- round(ci[2], 4) # Upper bound of CI
+  Result_table[j,5] <- round(summary(glm_model)$coefficients[2, 4], 4) # P-value for the coefficient of PC1
+  
+  j <- j+1
+}
+
+Result_table_fdr_diagnose_3_CMPFP_adj_w1_low<-Result_table%>%
+  mutate(FDR= p.adjust(Result_table$p.value,method="fdr"))
+Result_table_fdr_diagnose_3_CMPFP_adj_w1_low
+```
+
+```{r}
+method_order <- c("Adjusted","Unadjusted" )
+
+dodge_width <- 0.6  # Adjust as needed
+
+# Adjust text_offset to a small number to ensure text does not overlap with the error bars
+text_offset <- 0.05  
+#Hydroxy-CMPF diagnose
+combined_dataset_diag_diagnose_H_CMPF_w1_low<-bind_rows(
+  mutate(Result_table_fdr_diagnose_H_CMPF_unadj_w1_low, Adjustment = "Unadjusted"),
+  mutate(Result_table_fdr_diagnose_H_CMPF_adj_w1_low, Adjustment = "Adjusted"),
+)
+
+replacements <- setNames(c("Autism","ADHD Inattentive","ADHD Combined","ADHD","Any NDDs"), c("asd", "adhd_inattention","adhd_ih","adhd","Any_NDD"))
+combined_dataset_diag_diagnose_H_CMPF_w1_low$name <- with(combined_dataset_diag_diagnose_H_CMPF_w1_low, ifelse(name %in% names(replacements), replacements[name], name))
+
+name_order <- c("ADHD Combined","ADHD Inattentive", "ADHD", "Autism","Any NDDs")
+combined_dataset_diag_diagnose_H_CMPF1_w1_low <- combined_dataset_diag_diagnose_H_CMPF_w1_low %>%
+  mutate(name = factor(name, levels = name_order),
+         Adjustment = factor(Adjustment, levels = method_order))
+# Your existing ggplot code with the addition of reversing the legend order
+hcmpf_psy_w1_low <- ggplot(combined_dataset_diag_diagnose_H_CMPF1_w1_low, aes(x = OR, y = name, color = Adjustment)) +
+  geom_errorbar(aes(xmin = CIL, xmax = CIH), width = 0.2, size = 1.2, position = position_dodge(width = dodge_width)) +
+  geom_point(position = position_dodge(width = dodge_width), size = 4) +
+  geom_text(aes(x = CIH + text_offset, 
+                label = if_else(p.value < 0.001, 
+                                paste("** (", formatC(p.value, format = "e", digits = 1), ")", sep = ""),  # Scientific notation for p < 0.001
+                                if_else(p.value < 0.01, 
+                                        paste("** (", sub("^0\\.", ".", format(round(p.value, 3), nsmall = 3)), ")", sep = ""),  # Three digits if p < 0.01
+                                        if_else(p.value < 0.05, 
+                                                paste("* (", sub("^0\\.", ".", format(round(p.value, 2), nsmall = 2)), ")", sep = ""),  # Two digits for 0.01 ≤ p < 0.05
+                                                if_else(p.value < 0.1,
+                                                        paste(". (", sub("^0\\.", ".", format(round(p.value, 2), nsmall = 2)), ")", sep = ""),  # Two digits for 0.05 ≤ p < 0.1 with "."
+                                                        "")))),  # Hide p-values for p >= 0.1
+                hjust = -0.1), size = 4.5, position = position_dodge(width = dodge_width)) +
+  geom_vline(xintercept = 1, linetype = "longdash") +
+  scale_color_manual(values = c("#345d67", "#f09308")) +
+  theme_bw(base_size = 12) +
+  theme(axis.text.y = element_text(size = 12),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.line = element_line(colour = "black"),
+        legend.position = "right") +
+  ylab("") +
+  xlab("OR") +
+  ggtitle("Hydroxy-CMPF and NDD week 1-low") +
+  guides(color = guide_legend(reverse = TRUE))
+
+hcmpf_psy_w1_low
+#RCT
+#Hydroxy-CMPF diagnose
+combined_dataset_diag_diagnose_H_CMPF_w1_high<-bind_rows(
+  mutate(Result_table_fdr_diagnose_H_CMPF_unadj_w1_high, Adjustment = "Unadjusted"),
+  mutate(Result_table_fdr_diagnose_H_CMPF_adj_w1_high, Adjustment = "Adjusted"),
+)
+
+
+replacements <- setNames(c("Autism","ADHD Inattentive","ADHD Combined","ADHD","Any NDDs"), c("asd", "adhd_inattention","adhd_ih","adhd","Any_NDD"))
+combined_dataset_diag_diagnose_H_CMPF_w1_high$name <- with(combined_dataset_diag_diagnose_H_CMPF_w1_high, ifelse(name %in% names(replacements), replacements[name], name))
+
+name_order <- c("ADHD Combined","ADHD Inattentive", "ADHD", "Autism","Any NDDs")
+combined_dataset_diag_diagnose_H_CMPF1_w1_high <- combined_dataset_diag_diagnose_H_CMPF_w1_high %>%
+  mutate(name = factor(name, levels = name_order),
+         Adjustment = factor(Adjustment, levels = method_order))
+# Your existing ggplot code with the addition of reversing the legend order
+#save(combined_dataset_diag_diagnose_H_CMPF1_w1_high,file ="~/Library/CloudStorage/GoogleDrive-ting.wang@dbac.dk/My Drive/CMPF/CMPF and NDD/manuscript/figures/20250705/combined_dataset_diag_diagnose_H_CMPF_w1_high.Rdata" )
+
+hcmpf_psy_w1_high <- ggplot(combined_dataset_diag_diagnose_H_CMPF1_w1_high, aes(x = OR, y = name, color = Adjustment)) +
+  geom_errorbar(aes(xmin = CIL, xmax = CIH), width = 0.2, size = 1.2, position = position_dodge(width = dodge_width)) +
+  geom_point(position = position_dodge(width = dodge_width), size = 4) +
+  geom_text(aes(x = CIH + text_offset, 
+                label = if_else(p.value < 0.001, 
+                                paste("** (", formatC(p.value, format = "e", digits = 1), ")", sep = ""),  # Scientific notation for p < 0.001
+                                if_else(p.value < 0.01, 
+                                        paste("** (", sub("^0\\.", ".", format(round(p.value, 3), nsmall = 3)), ")", sep = ""),  # Three digits if p < 0.01
+                                        if_else(p.value < 0.05, 
+                                                paste("* (", sub("^0\\.", ".", format(round(p.value, 2), nsmall = 2)), ")", sep = ""),  # Two digits for 0.01 ≤ p < 0.05
+                                                if_else(p.value < 0.1,
+                                                        paste(". (", sub("^0\\.", ".", format(round(p.value, 2), nsmall = 2)), ")", sep = ""),  # Two digits for 0.05 ≤ p < 0.1 with "."
+                                                        "")))),  # Hide p-values for p >= 0.1
+                hjust = -0.1), size = 4.5, position = position_dodge(width = dodge_width)) +
+  geom_vline(xintercept = 1, linetype = "longdash") +
+  scale_color_manual(values = c("#345d67", "#f09308")) +
+  theme_bw(base_size = 12) +
+  theme(axis.text.y = element_text(size = 12),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.line = element_line(colour = "black"),
+        legend.position = "right") +
+  ylab("") +
+  xlab("OR") +
+  ggtitle("Hydroxy-CMPF and NDD week 1-high") +
+  guides(color = guide_legend(reverse = TRUE))
+
+hcmpf_psy_w1_high
+```
+CMPF
+```{r}
+#low
+combined_dataset_diag2_CMPF_w1_low<-bind_rows(
+  mutate(Result_table_fdr_diagnose_CMPF_unadj_w1_low, Adjustment = "Unadjusted"),
+  mutate(Result_table_fdr_diagnose_CMPF_adj_w1_low, Adjustment = "Adjusted"),
+)
+
+replacements <- setNames(c("Autism","ADHD Inattentive","ADHD Combined","ADHD","Any NDDs"), c("asd", "adhd_inattention","adhd_ih","adhd","Any_NDD"))
+combined_dataset_diag2_CMPF_w1_low$name <- with(combined_dataset_diag2_CMPF_w1_low, ifelse(name %in% names(replacements), replacements[name], name))
+
+
+name_order <- c("ADHD Combined","ADHD Inattentive", "ADHD", "Autism","Any NDDs")
+combined_dataset_diag2_CMPF_w1_2_low<- combined_dataset_diag2_CMPF_w1_low %>%
+  mutate(name = factor(name, levels = name_order),
+         Adjustment = factor(Adjustment, levels = method_order))
+
+cmpf_psy_w1_low<-ggplot(combined_dataset_diag2_CMPF_w1_2_low, aes(x = OR, y = name, color = Adjustment)) +
+  geom_errorbar(aes(xmin = CIL, xmax = CIH), width = 0.2, size = 1.2, position = position_dodge(width = dodge_width)) +
+  geom_point(position = position_dodge(width = dodge_width), size = 4) +
+  geom_text(aes(x = CIH + text_offset, 
+                label = if_else(p.value < 0.001, 
+                                paste("** (", formatC(p.value, format = "e", digits = 1), ")", sep = ""),  # Scientific notation for p < 0.001
+                                if_else(p.value < 0.01, 
+                                        paste("** (", sub("^0\\.", ".", format(round(p.value, 3), nsmall = 3)), ")", sep = ""),  # Three digits if p < 0.01
+                                        if_else(p.value < 0.05, 
+                                                paste("* (", sub("^0\\.", ".", format(round(p.value, 2), nsmall = 2)), ")", sep = ""),  # Two digits for 0.01 ≤ p < 0.05
+                                                if_else(p.value < 0.1,
+                                                        paste(". (", sub("^0\\.", ".", format(round(p.value, 2), nsmall = 2)), ")", sep = ""),  # Two digits for 0.05 ≤ p < 0.1 with "."
+                                                        "")))),  # Hide p-values for p >= 0.1
+                hjust = -0.1), size = 4.5, position = position_dodge(width = dodge_width)) +
+  geom_vline(xintercept = 1, linetype = "longdash") +
+  scale_color_manual(values = c("#345d67", "#f09308")) +
+  theme_bw(base_size = 12) +
+  theme(axis.text.y = element_text(size = 12),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.line = element_line(colour = "black"),
+        legend.position = "right") +
+  ylab("") +
+  xlab("OR") +
+  ggtitle("CMPF and NDD week 1 low") +
+  guides(color = guide_legend(reverse = TRUE))
+
+cmpf_psy_w1_low
+#high
+combined_dataset_diag2_CMPF_w1_high<-bind_rows(
+  mutate(Result_table_fdr_diagnose_CMPF_unadj_w1_high, Adjustment = "Unadjusted"),
+  mutate(Result_table_fdr_diagnose_CMPF_adj_w1_high, Adjustment = "Adjusted"),
+)
+
+replacements <- setNames(c("Autism","ADHD Inattentive","ADHD Combined","ADHD","Any NDDs"), c("asd", "adhd_inattention","adhd_ih","adhd","Any_NDD"))
+combined_dataset_diag2_CMPF_w1_high$name <- with(combined_dataset_diag2_CMPF_w1_high, ifelse(name %in% names(replacements), replacements[name], name))
+
+
+name_order <- c("ADHD Combined","ADHD Inattentive", "ADHD", "Autism","Any NDDs")
+combined_dataset_diag2_CMPF_w1_2_high<- combined_dataset_diag2_CMPF_w1_high %>%
+  mutate(name = factor(name, levels = name_order),
+         Adjustment = factor(Adjustment, levels = method_order))
+logtransform <- function(x, na.rm = FALSE) (x %>% log())
+combined_dataset_diag2_CMPF_w1_2_high_log <- combined_dataset_diag2_CMPF_w1_2_high%>% mutate(across(c("OR":"CIH"), logtransform))
+
+cmpf_psy_w1_high<-ggplot(combined_dataset_diag2_CMPF_w1_2_high_log, aes(x = OR, y = name, color = Adjustment)) +
+  geom_errorbar(aes(xmin = CIL, xmax = CIH), width = 0.2, size = 1.2, position = position_dodge(width = dodge_width)) +
+  geom_point(position = position_dodge(width = dodge_width), size = 4) +
+  geom_text(aes(x = CIH + text_offset, 
+                label = if_else(p.value < 0.001, 
+                                paste("** (", formatC(p.value, format = "e", digits = 1), ")", sep = ""),  # Scientific notation for p < 0.001
+                                if_else(p.value < 0.01, 
+                                        paste("** (", sub("^0\\.", ".", format(round(p.value, 3), nsmall = 3)), ")", sep = ""),  # Three digits if p < 0.01
+                                        if_else(p.value < 0.05, 
+                                                paste("* (", sub("^0\\.", ".", format(round(p.value, 2), nsmall = 2)), ")", sep = ""),  # Two digits for 0.01 ≤ p < 0.05
+                                                if_else(p.value < 0.1,
+                                                        paste(". (", sub("^0\\.", ".", format(round(p.value, 2), nsmall = 2)), ")", sep = ""),  # Two digits for 0.05 ≤ p < 0.1 with "."
+                                                        "")))),  # Hide p-values for p >= 0.1
+                hjust = -0.1), size = 4.5, position = position_dodge(width = dodge_width)) +
+  geom_vline(xintercept = 1, linetype = "longdash") +
+  scale_color_manual(values = c("#345d67", "#f09308")) +
+  theme_bw(base_size = 12) +
+  theme(axis.text.y = element_text(size = 12),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.line = element_line(colour = "black"),
+        legend.position = "right") +
+  ylab("") +
+  xlab("log(OR)") +
+  ggtitle("CMPF and NDD week 1 high") +
+  guides(color = guide_legend(reverse = TRUE))
+
+cmpf_psy_w1_high
+```
+
+3-CMPFP
+```{r}
+#RCT
+combined_dataset_diag_3CMPFP_w1_RCT<-bind_rows(
+  mutate(Result_table_fdr_diagnose_3_CMPFP_unadj_w1_RCT, Adjustment = "Unadjusted"),
+  mutate(Result_table_fdr_diagnose_3_CMPFP_adj_w1_RCT, Adjustment = "Adjusted"),
+)
+
+replacements <- setNames(c("Autism","ADHD Inattentive","ADHD Combined","ADHD","Any NDDs"), c("asd", "adhd_inattention","adhd_ih","adhd","neu_dev"))
+combined_dataset_diag_3CMPFP_w1_RCT$name <- with(combined_dataset_diag_3CMPFP_w1_RCT, ifelse(name %in% names(replacements), replacements[name], name))
+
+
+name_order <- c("ADHD Combined","ADHD Inattentive", "ADHD", "Autism","Any NDDs")
+combined_dataset_diag_3CMPFP_w1_2_RCT <- combined_dataset_diag_3CMPFP_w1_RCT %>%
+  mutate(name = factor(name, levels = name_order),
+         Adjustment = factor(Adjustment, levels = method_order))
+
+# Your existing ggplot code with the addition of reversing the legend order
+cmpfp3_psy_w1_RCT<-ggplot(combined_dataset_diag_3CMPFP_w1_2_RCT, aes(x = OR, y = name, color = Adjustment)) +
+  geom_errorbar(aes(xmin = CIL, xmax = CIH), width = 0.2, size = 1.2, position = position_dodge(width = dodge_width)) +
+  geom_point(position = position_dodge(width = dodge_width), size = 4) +
+  geom_text(aes(x = CIH + text_offset, 
+                label = if_else(p.value < 0.001, 
+                                paste("** (", formatC(p.value, format = "e", digits = 1), ")", sep = ""),  # Scientific notation for p < 0.001
+                                if_else(p.value < 0.01, 
+                                        paste("** (", sub("^0\\.", ".", format(round(p.value, 3), nsmall = 3)), ")", sep = ""),  # Three digits if p < 0.01
+                                        if_else(p.value < 0.05, 
+                                                paste("* (", sub("^0\\.", ".", format(round(p.value, 2), nsmall = 2)), ")", sep = ""),  # Two digits for 0.01 ≤ p < 0.05
+                                                if_else(p.value < 0.1,
+                                                        paste(". (", sub("^0\\.", ".", format(round(p.value, 2), nsmall = 2)), ")", sep = ""),  # Two digits for 0.05 ≤ p < 0.1 with "."
+                                                        "")))),  # Hide p-values for p >= 0.1
+                hjust = -0.1), size = 4.5, position = position_dodge(width = dodge_width)) +
+  geom_vline(xintercept = 1, linetype = "longdash") +
+  scale_color_manual(values = c("#345d67", "#f09308")) +
+  theme_bw(base_size = 12) +
+  theme(axis.text.y = element_text(size = 12),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.line = element_line(colour = "black"),
+        legend.position = "right") +
+  ylab("") +
+  xlab("OR") +
+  ggtitle("3-CMPFP and NDD week 1 RCT") +
+  guides(color = guide_legend(reverse = TRUE))
+cmpfp3_psy_w1_RCT
+
+combined_dataset_diag_3CMPFP_w1_placebo<-bind_rows(
+  mutate(Result_table_fdr_diagnose_3_CMPFP_unadj_w1_placebo, Adjustment = "Unadjusted"),
+  mutate(Result_table_fdr_diagnose_3_CMPFP_adj_w1_placebo, Adjustment = "Adjusted"),
+)
+
+replacements <- setNames(c("Autism","ADHD Inattentive","ADHD Combined","ADHD","Any NDDs"), c("asd", "adhd_inattention","adhd_ih","adhd","neu_dev"))
+combined_dataset_diag_3CMPFP_w1_placebo$name <- with(combined_dataset_diag_3CMPFP_w1_placebo, ifelse(name %in% names(replacements), replacements[name], name))
+
+
+name_order <- c("ADHD Combined","ADHD Inattentive", "ADHD", "Autism","Any NDDs")
+combined_dataset_diag_3CMPFP_w1_2_placebo <- combined_dataset_diag_3CMPFP_w1_placebo %>%
+  mutate(name = factor(name, levels = name_order),
+         Adjustment = factor(Adjustment, levels = method_order))
+
+# Your existing ggplot code with the addition of reversing the legend order
+cmpfp3_psy_w1_placebo<-ggplot(combined_dataset_diag_3CMPFP_w1_2_placebo, aes(x = OR, y = name, color = Adjustment)) +
+  geom_errorbar(aes(xmin = CIL, xmax = CIH), width = 0.2, size = 1.2, position = position_dodge(width = dodge_width)) +
+  geom_point(position = position_dodge(width = dodge_width), size = 4) +
+  geom_text(aes(x = CIH + text_offset, 
+                label = if_else(p.value < 0.001, 
+                                paste("** (", formatC(p.value, format = "e", digits = 1), ")", sep = ""),  # Scientific notation for p < 0.001
+                                if_else(p.value < 0.01, 
+                                        paste("** (", sub("^0\\.", ".", format(round(p.value, 3), nsmall = 3)), ")", sep = ""),  # Three digits if p < 0.01
+                                        if_else(p.value < 0.05, 
+                                                paste("* (", sub("^0\\.", ".", format(round(p.value, 2), nsmall = 2)), ")", sep = ""),  # Two digits for 0.01 ≤ p < 0.05
+                                                if_else(p.value < 0.1,
+                                                        paste(". (", sub("^0\\.", ".", format(round(p.value, 2), nsmall = 2)), ")", sep = ""),  # Two digits for 0.05 ≤ p < 0.1 with "."
+                                                        "")))),  # Hide p-values for p >= 0.1
+                hjust = -0.1), size = 4.5, position = position_dodge(width = dodge_width)) +
+  geom_vline(xintercept = 1, linetype = "longdash") +
+  scale_color_manual(values = c("#345d67", "#f09308")) +
+  theme_bw(base_size = 12) +
+  theme(axis.text.y = element_text(size = 12),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.line = element_line(colour = "black"),
+        legend.position = "right") +
+  ylab("") +
+  xlab("OR") +
+  ggtitle("3-CMPFP and NDD week 1 placebo") +
+  guides(color = guide_legend(reverse = TRUE))
+cmpfp3_psy_w1_placebo
+```
+
+```{r}
+combined_plot_w1_strata <- ggarrange(
+cmpf_psy_w1_RCT,
+  hcmpf_psy_w1_RCT,
+ cmpfp3_psy_w1_RCT,
+  cmpf_psy_w1_placebo,
+  hcmpf_psy_w1_placebo,
+cmpfp3_psy_w1_placebo,
+  ncol = 3, nrow = 2,
+  align = "hv",             # Align both horizontal and vertical axes
+  common.legend = TRUE,     # Share the legend among plots
+  legend = "right",         # Position the legend on the right side
+  labels = c("a", "b", "c","d", "e", "f"), # Labels for subplots
+  label.x = 0.1,            # Adjust horizontal position of labels
+  label.y = 1.0,            # Adjust vertical position of labels
+  font.label = list(size = 14, face = "bold") # Font size and style for labels
+)
+# Print the combined plot
+print(combined_plot_w1_strata)
+```
+
+
+ 
+ 

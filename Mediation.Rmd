@@ -1,0 +1,1980 @@
+---
+title: "Untitled"
+author: "Tingting"
+date: "2026-03-13"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(ggforce)
+library(pheatmap)
+library(RColorBrewer)
+library(vegan)
+library(broom)
+library(ggstance)
+library(lubridate)
+library(readxl)
+library(ggpubr)
+library(janitor)
+library(rio)
+library(tidyr)
+library(caret)
+library(mlbench)
+library(doMC)
+library(caret)
+library(pROC)
+library(mixOmics)
+library(tidyverse)
+library(mixOmicsCaret)  
+library(mlbench)
+library(ggplot2)
+library(forcats)
+library(dplyr)
+library(openxlsx)
+library(readxl)
+library(data.table)
+```
+
+
+```{r}
+all_annotation<-read.xlsx("~/diagnoser_paper.Rdata")
+
+# Add "X" to the start of each cell in the specific column
+all_annotation$CHEM_ID <- paste("X", all_annotation$CHEM_ID, sep = "")
+
+longti_data<-read.xlsx("~/all_anchor_norm_impute30_log_output_halfmin.xlsx")
+
+names(longti_data)[4:791] <- paste("X", names(longti_data)[4:791], sep = "")
+longti_data<-na.omit(longti_data)
+longti_data_1<-longti_data%>%filter(TP%in% c("Mor_w24","Mor_w1","6mth", "18mth", "6yr","10yr"))
+
+load("~/psychopathology_wide.Rdata")
+psychopathology_wide_s<-data.frame(psychopathology_wide)[,c(1:7,9,13:17,50,51,56)]
+fish_oil<- read_xlsx('~/ABC_Fishoil.xlsx', sheet = 'Data') 
+VD<-read.csv('~/D-vitamin.csv') 
+w24_all<-longti_data_2%>%filter(TP=="Mor_w24")
+
+```
+
+## R Markdown
+```{r}
+load("~/covariat_all_18.Rdata")
+load("~/proteomics_data_s.Rdata")
+
+```
+
+```{r}
+#proteome <-proteomics_data_s
+
+load("~/diag_all_name.Rdata")
+hold<-list(diag_all_name[,c(1:2)],covariat_all_18,proteomics_data_s[,c("ABCNO","FGF-23","VEGFA","IL6","MCP-1","IL-12B","CD5","CCL3")],w24_al,fish_oil[,c(1,2)])%>%reduce(full_join, by="ABCNO")
+
+hold <- hold %>%
+  mutate(fish_oil_binary = case_when(
+    fish_oil == "Fiskeolie" ~ 1,
+    fish_oil == "Placebo" ~ 0,
+    TRUE ~ NA_real_
+  ))  
+```
+
+###logistic regression
+hcmpf
+```{r}
+
+# Temporarily update names to valid names for processing
+Result_table <- matrix(data = NA, nrow = 8, ncol = 6)
+colnames(Result_table) <- c("name","OR","CIL","CIH","p.value","N")
+Result_table <- as.data.frame(Result_table)
+
+j <- 1
+
+for (i in 19:26) {
+
+  y.var <- "hcmpf"
+  x.var <- names(hold)[i]
+
+  my.lm.formula <- as.formula(paste0(y.var, " ~ ", x.var))
+
+  lm_model <- lm(my.lm.formula, data = hold)
+
+  tt <- tidy(lm_model)
+
+  # N used in model (after NA removal)
+  N_used <- nrow(model.frame(lm_model))
+
+  Result_table[j,1] <- x.var
+  Result_table[j,2] <- round(coef(lm_model)[2], 4)
+  Result_table[j,3] <- round(confint(lm_model)[2,1], 4)
+  Result_table[j,4] <- round(confint(lm_model)[2,2], 4)
+  Result_table[j,5] <- round(tt$p.value[2], 10)
+  Result_table[j,6] <- N_used
+
+  j <- j + 1
+}
+
+
+Result_table<-Result_table%>%
+  mutate(FDR= p.adjust(Result_table$p.value,method="fdr"))
+Result_table_Significant <- subset(Result_table,p.value<= 0.05)
+HCMPF<-Result_table
+Result_table
+feature_order <- c("CRP", "FGF-23", "VEGFA", "IL6", "MCP-1", "IL-12B", "CD5", "CCL3")
+
+plot_HCMPF <- Result_table %>%
+  mutate(
+    name = factor(name, levels = rev(feature_order)),  # controls y-axis order
+
+    sig_group = case_when(
+      FDR < 0.05 ~ "FDR < 0.05",
+      p.value < 0.05 ~ "P.value < 0.05",
+      TRUE ~ "ns"
+    ) %>% factor(levels = c("FDR < 0.05", "P.value < 0.05", "ns")),
+
+   p_fmt = case_when(
+  FDR < 0.001 ~ formatC(FDR, format = "e", digits = 2),
+  FDR < 0.05  ~ format(round(FDR, 3), nsmall = 3),
+  TRUE        ~ format(round(FDR, 2), nsmall = 2)
+),
+
+    label = case_when(
+      FDR < 0.05 ~ paste0("** ", p_fmt),
+      p.value < 0.05 ~ paste0("* ", p_fmt),
+      TRUE ~ ""
+    )
+  ) %>%
+  ggplot(aes(
+    x = OR,
+    y = name,
+    color = sig_group
+  )) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(xmin = CIL, xmax = CIH), width = 0.2) +
+  geom_vline(xintercept = 0, linetype = "longdash", color = "grey") +
+  scale_color_manual(
+    values = c("FDR < 0.05" = "red", "P.value < 0.05" = "black", "ns" = "grey"),
+    name = "Significance"
+  ) +
+  labs(
+    y = NULL,
+    x = "Estimate",
+    title = "Hydroxy CMPF-week 24"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(size = 18, face = "bold"),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line = element_line(colour = "black")
+  ) +
+  geom_text(
+    aes(label = label, x = CIH + 0.005),
+    hjust = 0,
+    size = 3.5,
+    color = "darkgrey"
+  )
+
+plot_HCMPF
+
+
+```
+
+CMPF
+```{r}
+
+# Temporarily update names to valid names for processing
+Result_table <- matrix(data = NA, nrow = 8, ncol = 6)
+colnames(Result_table) <- c("name","OR","CIL","CIH","p.value","N")
+Result_table <- as.data.frame(Result_table)
+
+j <- 1
+
+for (i in 19:26) {
+
+  y.var <- "CMPF"
+  x.var <- names(hold)[i]
+
+  my.lm.formula <- as.formula(paste0(y.var, " ~ ", x.var))
+
+  lm_model <- lm(my.lm.formula, data = hold)
+
+  tt <- tidy(lm_model)
+
+  # N used in model (after NA removal)
+  N_used <- nrow(model.frame(lm_model))
+
+  Result_table[j,1] <- x.var
+  Result_table[j,2] <- round(coef(lm_model)[2], 4)
+  Result_table[j,3] <- round(confint(lm_model)[2,1], 4)
+  Result_table[j,4] <- round(confint(lm_model)[2,2], 4)
+  Result_table[j,5] <- round(tt$p.value[2], 10)
+  Result_table[j,6] <- N_used
+
+  j <- j + 1
+}
+
+
+Result_table<-Result_table%>%
+  mutate(FDR= p.adjust(Result_table$p.value,method="fdr"))
+Result_table_Significant <- subset(Result_table,p.value<= 0.05)
+CMPF<-Result_table
+feature_order <- c("CRP", "FGF-23", "VEGFA", "IL6", "MCP-1", "IL-12B", "CD5", "CCL3")
+
+plot_CMPF <- Result_table %>%
+  mutate(
+    name = factor(name, levels = rev(feature_order)),  # controls y-axis order
+
+    sig_group = case_when(
+      FDR < 0.05 ~ "FDR < 0.05",
+      p.value < 0.05 ~ "P.value < 0.05",
+      TRUE ~ "ns"
+    ) %>% factor(levels = c("FDR < 0.05", "P.value < 0.05", "ns")),
+
+   p_fmt = case_when(
+  FDR < 0.001 ~ formatC(FDR, format = "e", digits = 2),
+  FDR < 0.05  ~ format(round(FDR, 3), nsmall = 3),
+  TRUE        ~ format(round(FDR, 2), nsmall = 2)
+),
+
+    label = case_when(
+      FDR < 0.05 ~ paste0("** ", p_fmt),
+      p.value < 0.05 ~ paste0("* ", p_fmt),
+      TRUE ~ ""
+    )
+  ) %>%
+  ggplot(aes(
+    x = OR,
+    y = name,
+    color = sig_group
+  )) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(xmin = CIL, xmax = CIH), width = 0.2) +
+  geom_vline(xintercept = 0, linetype = "longdash", color = "grey") +
+  scale_color_manual(
+    values = c("FDR < 0.05" = "red", "P.value < 0.05" = "black", "ns" = "grey"),
+    name = "Significance"
+  ) +
+  labs(
+    y = NULL,
+    x = "Estimate",
+    title = "CMPF-week 24"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(size = 18, face = "bold"),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line = element_line(colour = "black")
+  ) +
+  geom_text(
+    aes(label = label, x = CIH + 0.005),
+    hjust = 0,
+    size = 3.5,
+    color = "darkgrey"
+  )
+
+plot_CMPF
+```
+
+3cmpfp
+```{r}
+Result_table <- matrix(data = NA, nrow =8, ncol = 6)
+colnames(Result_table) <- c("name","OR","CIL","CIH","p.value","N")
+Result_table <- as.data.frame(Result_table)
+
+j <- 1
+
+for (i in 19:26) {
+
+  y.var <- "3cmpfp"
+  x.var <- names(hold)[i]
+
+  my.lm.formula <- as.formula(paste0(y.var, " ~ ", x.var))
+
+  lm_model <- lm(my.lm.formula, data = hold)
+
+  tt <- tidy(lm_model)
+
+  # N used in model (after NA removal)
+  N_used <- nrow(model.frame(lm_model))
+
+  Result_table[j,1] <- x.var
+  Result_table[j,2] <- round(coef(lm_model)[2], 4)
+  Result_table[j,3] <- round(confint(lm_model)[2,1], 4)
+  Result_table[j,4] <- round(confint(lm_model)[2,2], 4)
+  Result_table[j,5] <- round(tt$p.value[2], 10)
+  Result_table[j,6] <- N_used
+
+  j <- j + 1
+}
+
+
+Result_table<-Result_table%>%
+  mutate(FDR= p.adjust(Result_table$p.value,method="fdr"))
+Result_table_Significant <- subset(Result_table,p.value<= 0.05)
+CMPF3<-Result_table
+feature_order <- c("CRP", "FGF-23", "VEGFA", "IL6", "MCP-1", "IL-12B", "CD5", "CCL3")
+
+plot_3CMPF <- Result_table %>%
+  mutate(
+    name = factor(name, levels = rev(feature_order)),  # controls y-axis order
+
+    sig_group = case_when(
+      FDR < 0.05 ~ "FDR < 0.05",
+      p.value < 0.05 ~ "P.value < 0.05",
+      TRUE ~ "ns"
+    ) %>% factor(levels = c("FDR < 0.05", "P.value < 0.05", "ns")),
+
+   p_fmt = case_when(
+  FDR < 0.001 ~ formatC(FDR, format = "e", digits = 2),
+  FDR < 0.05  ~ format(round(FDR, 3), nsmall = 3),
+  TRUE        ~ format(round(FDR, 2), nsmall = 2)
+),
+
+    label = case_when(
+      FDR < 0.05 ~ paste0("** ", p_fmt),
+      p.value < 0.05 ~ paste0("* ", p_fmt),
+      TRUE ~ ""
+    )
+  ) %>%
+  ggplot(aes(
+    x = OR,
+    y = name,
+    color = sig_group
+  )) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(xmin = CIL, xmax = CIH), width = 0.2) +
+  geom_vline(xintercept = 0, linetype = "longdash", color = "grey") +
+  scale_color_manual(
+    values = c("FDR < 0.05" = "red", "P.value < 0.05" = "black", "ns" = "grey"),
+    name = "Significance"
+  ) +
+  labs(
+    y = NULL,
+    x = "Estimate",
+    title = "3-CMPFP-week 24"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(size = 18, face = "bold"),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line = element_line(colour = "black")
+  ) +
+  geom_text(
+    aes(label = label, x = CIH + 0.005),
+    hjust = 0,
+    size = 3.5,
+    color = "darkgrey"
+  )
+
+plot_3CMPF
+```
+
+```{r}
+combined_plot <- ggarrange(
+  plot_CMPF, plot_HCMPF, plot_3CMPF,
+  ncol = 3, nrow = 1,
+  align = "hv",
+  common.legend = T,
+  legend = "right",
+  labels = c("a", "b", "c"),
+  label.x = -0.005,
+  label.y = 1.01,   # move labels upward
+  font.label = list(size = 14, face = "bold")
+)
+
+combined_plot
+
+library(patchwork)
+(plot_HCMPF|plot_CMPF|plot_3CMPF)
+```
+
+
+CRP
+```{r}
+hold_1 <- hold[, c(1:5, 19:26, which(names(hold) %in% c("cmpf","hcmpf","3cmpfp")))]
+PM<-hold_1
+PM<-na.omit(PM)
+#######################################################3
+model.M <- lm(CRP ~ hcmpf, na.action = na.omit,PM)
+summary(model.M)
+
+model.Y <- glm(adhd~hcmpf + CRP, family=binomial, na.action = na.omit,PM)
+summary(model.Y)
+
+set.seed(234)
+results <- mediation::mediate(
+  model.m = model.M,
+  model.y = model.Y,
+  treat = "hcmpf",
+  mediator = "CRP",
+  boot = TRUE,
+  sims = 1000
+)
+summary(results)
+plot(results)
+prop_mediated <- results$n.avg * 100  # Convert to percentage
+mediation_p_value <- results$n.avg.p
+ACME_P_value <- results$d.avg.p  # Assuming ACME P-value is the same as d.avg.p
+
+# Plot results
+plot(results, main = "Treat: Hydroxy CMPF; Mediator: CRP", 
+     xlab = "Effect Sizes", ylab = "Mediation Pathways", 
+     col = "darkblue", pch = 19, cex = 1.2)
+grid(col = "gray")
+
+# Dynamically adjust text position for the top-right corner
+x_range <- par("usr")[1:2] # Get x-axis range
+y_range <- par("usr")[3:4] # Get y-axis range
+
+text_x <- max(x_range) - 0.18 * diff(x_range)  # Increase horizontal offset to move left
+text_y_top <- max(y_range) - 0.05 * diff(y_range)  # Slightly below the top edge
+text_y_middle <- max(y_range) - 0.1 * diff(y_range)  # Below the first text
+text_y_bottom <- max(y_range) - 0.15 * diff(y_range)  # Below the second text
+
+# Add annotations in the top-right corner
+text(x = text_x, y = text_y_top, 
+     labels = paste("Prop. Mediated (avg):", round(prop_mediated, 2), "%"), 
+     col = "black", cex = 1.2)
+
+text(x = text_x, y = text_y_middle, 
+     labels = paste("Prop. Mediated P-value:", signif(mediation_p_value, 3)), 
+     col = "black", cex = 1.2)
+
+text(x = text_x, y = text_y_bottom, 
+     labels = paste("ACME P-value:", signif(ACME_P_value, 3)), 
+     col = "black", cex = 1.2)
+```
+another style
+```{r}
+plot_df <- data.frame(
+  Effect = factor(c("ACME", "ADE", "Total Effect"),
+                  levels = c("ACME", "ADE", "Total Effect")),
+  Estimate = c(results$d.avg, results$z.avg, results$tau.coef),
+  Lower = c(results$d.avg.ci[1], results$z.avg.ci[1], results$tau.ci[1]),
+  Upper = c(results$d.avg.ci[2], results$z.avg.ci[2], results$tau.ci[2]),
+  P_value = c(results$d.avg.p, results$z.avg.p, results$tau.p)
+) %>%
+  mutate(
+    p_label = ifelse(P_value < 0.001, "P < 0.001",
+                     paste0("P = ", format(round(P_value, 3), nsmall = 3)))
+  )
+
+prop_label <- paste0(
+  "Prop. Mediated (avg) = ",
+  round(results$n.avg * 100, 2), "%  ",
+  "(",
+  round(results$n.avg.ci[1] * 100, 2), "%, ",
+  round(results$n.avg.ci[2] * 100, 2), "%)",
+  "; P = ",
+  ifelse(results$n.avg.p < 0.001, "< 0.001",
+         format(round(results$n.avg.p, 3), nsmall = 3))
+)
+
+# Data for main effects
+plot_df <- data.frame(
+  Effect = factor(c("ACME", "ADE", "Total Effect"),
+                  levels = c("Total Effect", "ADE", "ACME")),
+  Estimate = c(results$tau.coef, results$z.avg, results$d.avg),
+  Lower = c(results$tau.ci[1], results$z.avg.ci[1], results$d.avg.ci[1]),
+  Upper = c(results$tau.ci[2], results$z.avg.ci[2], results$d.avg.ci[2]),
+  P_value = c(results$tau.p, results$z.avg.p, results$d.avg.p)
+) %>%
+  mutate(
+    p_label = case_when(
+      P_value < 0.001 ~ "P < 0.001",
+      TRUE ~ paste0("P = ", format(round(P_value, 3), nsmall = 3))
+    )
+  )
+
+# Text for mediation proportion
+prop_text <- paste0(
+  "Prop. Mediated = ", format(round(results$n.avg * 100, 2), nsmall = 2), "%\n",
+  "95% CI: ", format(round(results$n.avg.ci[1] * 100, 2), nsmall = 2), "% to ",
+  format(round(results$n.avg.ci[2] * 100, 2), nsmall = 2), "%\n",
+  ifelse(results$n.avg.p < 0.001, "P < 0.001",
+         paste0("P = ", format(round(results$n.avg.p, 3), nsmall = 3)))
+)
+
+# Expand x-range a bit so labels fit nicely
+x_min <- min(plot_df$Lower, na.rm = TRUE)
+x_max <- max(plot_df$Upper, na.rm = TRUE)
+x_pad <- 0.35 * (x_max - x_min)
+
+# Prepare data
+plot_df <- data.frame(
+  Effect = factor(c("ACME", "ADE", "Total Effect"),
+                  levels = c("Total Effect", "ADE", "ACME")),
+  Estimate = c(results$tau.coef, results$z.avg, results$d.avg),
+  Lower = c(results$tau.ci[1], results$z.avg.ci[1], results$d.avg.ci[1]),
+  Upper = c(results$tau.ci[2], results$z.avg.ci[2], results$d.avg.ci[2]),
+  P_value = c(results$tau.p, results$z.avg.p, results$d.avg.p)
+) %>%
+  mutate(
+    p_label = case_when(
+      P_value < 0.001 ~ "P < 0.001",
+      TRUE ~ paste0("P = ", format(round(P_value, 3), nsmall = 3))
+    )
+  )
+
+# Proportion mediated text
+prop_text <- paste0(
+  "Prop. Mediated = ", format(round(results$n.avg * 100, 2), nsmall = 2), "%\n",
+  "95% CI: ", format(round(results$n.avg.ci[1] * 100, 2), nsmall = 2), "% to ",
+  format(round(results$n.avg.ci[2] * 100, 2), nsmall = 2), "%\n",
+  ifelse(results$n.avg.p < 0.001,
+         "P < 0.001",
+         paste0("P = ", format(round(results$n.avg.p, 3), nsmall = 3)))
+)
+
+# Axis range
+x_min <- min(plot_df$Lower, na.rm = TRUE)
+x_max <- max(plot_df$Upper, na.rm = TRUE)
+x_pad <- 0.35 * (x_max - x_min)
+
+# Plot
+HCMPF_CRP_ADHD<-ggplot(plot_df, aes(x = Estimate, y = Effect)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey65", linewidth = 0.7) +
+  
+  geom_errorbarh(
+    aes(xmin = Lower, xmax = Upper),
+    height = 0.16,
+    linewidth = 1,
+    color = "grey40"
+  ) +
+  
+  geom_point(
+    size = 4,
+    shape = 21,
+    fill = "#B3C5F1",
+    color = "#B3C5F1",
+    stroke = 0.4
+  ) +
+  
+  geom_text(
+    aes(x = Upper, label = p_label),
+    hjust = -0.15,
+    size = 4.2
+  ) +
+  
+  annotate(
+    "text",
+    x = x_min + 0.02 * (x_max - x_min),
+    y = 1.05,
+    label = prop_text,
+    hjust = 0,
+    vjust = 1,
+    size = 4
+  ) +
+  
+  scale_x_continuous(
+    limits = c(x_min, x_max + x_pad),
+    expand = expansion(mult = c(0.02, 0.02))
+  ) +
+  
+  labs(
+    title = "Mediation analysis",
+    subtitle = "Exposure: Hydroxy-CMPF   Mediator: CRP   Outcome: ADHD",
+    x = "Effect sizes",
+    y = NULL
+    #caption = "ACME: average causal mediation effect; ADE: average direct effect."
+  ) +
+  
+  theme_classic(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", size = 17, hjust = 0.5),
+    plot.subtitle = element_text(size = 12, hjust = 0.5),
+    axis.text.y = element_text(face = "bold", size = 12),
+    axis.text.x = element_text(size = 11),
+    axis.title.x = element_text(size = 13),
+    plot.caption = element_text(size = 10, color = "grey30"),
+    plot.margin = margin(20, 90, 20, 20)
+  ) +
+  
+  coord_cartesian(clip = "off")
+HCMPF_CRP_ADHD
+```
+CRP 3-CMPFP
+```{r}
+model.M <- lm(CRP ~ 3cmpfp, na.action = na.omit,PM)
+summary(model.M)
+
+model.Y <- glm(adhd~3cmpfp + CRP, family=binomial, na.action = na.omit,PM)
+summary(model.Y)
+
+set.seed(234)
+results <- mediation::mediate(
+  model.m = model.M,
+  model.y = model.Y,
+  treat = "3cmpfp",
+  mediator = "CRP",
+  boot = TRUE,
+  sims = 1000
+)
+summary(results)
+plot(results)
+prop_mediated <- results$n.avg * 100  # Convert to percentage
+mediation_p_value <- results$n.avg.p
+ACME_P_value <- results$d.avg.p  # Ass
+
+plot_df <- data.frame(
+  Effect = factor(c("ACME", "ADE", "Total Effect"),
+                  levels = c("ACME", "ADE", "Total Effect")),
+  Estimate = c(results$d.avg, results$z.avg, results$tau.coef),
+  Lower = c(results$d.avg.ci[1], results$z.avg.ci[1], results$tau.ci[1]),
+  Upper = c(results$d.avg.ci[2], results$z.avg.ci[2], results$tau.ci[2]),
+  P_value = c(results$d.avg.p, results$z.avg.p, results$tau.p)
+) %>%
+  mutate(
+    p_label = ifelse(P_value < 0.001, "P < 0.001",
+                     paste0("P = ", format(round(P_value, 3), nsmall = 3)))
+  )
+
+prop_label <- paste0(
+  "Prop. Mediated (avg) = ",
+  round(results$n.avg * 100, 2), "%  ",
+  "(",
+  round(results$n.avg.ci[1] * 100, 2), "%, ",
+  round(results$n.avg.ci[2] * 100, 2), "%)",
+  "; P = ",
+  ifelse(results$n.avg.p < 0.001, "< 0.001",
+         format(round(results$n.avg.p, 3), nsmall = 3))
+)
+
+# Data for main effects
+plot_df <- data.frame(
+  Effect = factor(c("ACME", "ADE", "Total Effect"),
+                  levels = c("Total Effect", "ADE", "ACME")),
+  Estimate = c(results$tau.coef, results$z.avg, results$d.avg),
+  Lower = c(results$tau.ci[1], results$z.avg.ci[1], results$d.avg.ci[1]),
+  Upper = c(results$tau.ci[2], results$z.avg.ci[2], results$d.avg.ci[2]),
+  P_value = c(results$tau.p, results$z.avg.p, results$d.avg.p)
+) %>%
+  mutate(
+    p_label = case_when(
+      P_value < 0.001 ~ "P < 0.001",
+      TRUE ~ paste0("P = ", format(round(P_value, 3), nsmall = 3))
+    )
+  )
+
+# Text for mediation proportion
+prop_text <- paste0(
+  "Prop. Mediated = ", format(round(results$n.avg * 100, 2), nsmall = 2), "%\n",
+  "95% CI: ", format(round(results$n.avg.ci[1] * 100, 2), nsmall = 2), "% to ",
+  format(round(results$n.avg.ci[2] * 100, 2), nsmall = 2), "%\n",
+  ifelse(results$n.avg.p < 0.001, "P < 0.001",
+         paste0("P = ", format(round(results$n.avg.p, 3), nsmall = 3)))
+)
+
+# Expand x-range a bit so labels fit nicely
+x_min <- min(plot_df$Lower, na.rm = TRUE)
+x_max <- max(plot_df$Upper, na.rm = TRUE)
+x_pad <- 0.35 * (x_max - x_min)
+
+# Prepare data
+plot_df <- data.frame(
+  Effect = factor(c("ACME", "ADE", "Total Effect"),
+                  levels = c("Total Effect", "ADE", "ACME")),
+  Estimate = c(results$tau.coef, results$z.avg, results$d.avg),
+  Lower = c(results$tau.ci[1], results$z.avg.ci[1], results$d.avg.ci[1]),
+  Upper = c(results$tau.ci[2], results$z.avg.ci[2], results$d.avg.ci[2]),
+  P_value = c(results$tau.p, results$z.avg.p, results$d.avg.p)
+) %>%
+  mutate(
+    p_label = case_when(
+      P_value < 0.001 ~ "P < 0.001",
+      TRUE ~ paste0("P = ", format(round(P_value, 3), nsmall = 3))
+    )
+  )
+
+# Proportion mediated text
+prop_text <- paste0(
+  "Prop. Mediated = ", format(round(results$n.avg * 100, 2), nsmall = 2), "%\n",
+  "95% CI: ", format(round(results$n.avg.ci[1] * 100, 2), nsmall = 2), "% to ",
+  format(round(results$n.avg.ci[2] * 100, 2), nsmall = 2), "%\n",
+  ifelse(results$n.avg.p < 0.001,
+         "P < 0.001",
+         paste0("P = ", format(round(results$n.avg.p, 3), nsmall = 3)))
+)
+
+# Axis range
+x_min <- min(plot_df$Lower, na.rm = TRUE)
+x_max <- max(plot_df$Upper, na.rm = TRUE)
+x_pad <- 0.35 * (x_max - x_min)
+
+# Plot
+CMPFP3_CRP_ADHD<-ggplot(plot_df, aes(x = Estimate, y = Effect)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey65", linewidth = 0.7) +
+  
+  geom_errorbarh(
+    aes(xmin = Lower, xmax = Upper),
+    height = 0.16,
+    linewidth = 1,
+    color = "grey40"
+  ) +
+  
+  geom_point(
+    size = 4,
+    shape = 21,
+    fill = "#B3C5F1",
+    color = "#B3C5F1",
+    stroke = 0.4
+  ) +
+  
+  geom_text(
+    aes(x = Upper, label = p_label),
+    hjust = -0.15,
+    size = 4.2
+  ) +
+  
+  annotate(
+    "text",
+    x = x_min + 0.02 * (x_max - x_min),
+    y = 1.05,
+    label = prop_text,
+    hjust = 0,
+    vjust = 1,
+    size = 4
+  ) +
+  
+  scale_x_continuous(
+    limits = c(x_min, x_max + x_pad),
+    expand = expansion(mult = c(0.02, 0.02))
+  ) +
+  
+  labs(
+    title = "Mediation analysis",
+    subtitle = "Exposure:3-CMPFP   Mediator: CRP   Outcome: ADHD",
+    x = "Effect sizes",
+    y = NULL
+   # caption = "ACME: average causal mediation effect; ADE: average direct effect."
+  ) +
+  
+  theme_classic(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", size = 17, hjust = 0.5),
+    plot.subtitle = element_text(size = 12, hjust = 0.5),
+    axis.text.y = element_text(face = "bold", size = 12),
+    axis.text.x = element_text(size = 11),
+    axis.title.x = element_text(size = 13),
+    plot.caption = element_text(size = 10, color = "grey30"),
+    plot.margin = margin(20, 90, 20, 20)
+  ) +
+  
+  coord_cartesian(clip = "off")
+CMPFP3_CRP_ADHD
+```
+
+
+CRP CMPF
+```{r}
+model.M <- lm(CRP ~ cmpf, na.action = na.omit,PM)
+summary(model.M)
+
+model.Y <- glm(adhd~cmpf + CRP, family=binomial, na.action = na.omit,PM)
+summary(model.Y)
+
+set.seed(234)
+results <- mediation::mediate(
+  model.m = model.M,
+  model.y = model.Y,
+  treat = "cmpf",
+  mediator = "CRP",
+  boot = TRUE,
+  sims = 1000
+)
+summary(results)
+plot(results)
+prop_mediated <- results$n.avg * 100  # Convert to percentage
+mediation_p_value <- results$n.avg.p
+ACME_P_value <- results$d.avg.p  # Ass
+
+plot_df <- data.frame(
+  Effect = factor(c("ACME", "ADE", "Total Effect"),
+                  levels = c("ACME", "ADE", "Total Effect")),
+  Estimate = c(results$d.avg, results$z.avg, results$tau.coef),
+  Lower = c(results$d.avg.ci[1], results$z.avg.ci[1], results$tau.ci[1]),
+  Upper = c(results$d.avg.ci[2], results$z.avg.ci[2], results$tau.ci[2]),
+  P_value = c(results$d.avg.p, results$z.avg.p, results$tau.p)
+) %>%
+  mutate(
+    p_label = ifelse(P_value < 0.001, "P < 0.001",
+                     paste0("P = ", format(round(P_value, 3), nsmall = 3)))
+  )
+
+prop_label <- paste0(
+  "Prop. Mediated (avg) = ",
+  round(results$n.avg * 100, 2), "%  ",
+  "(",
+  round(results$n.avg.ci[1] * 100, 2), "%, ",
+  round(results$n.avg.ci[2] * 100, 2), "%)",
+  "; P = ",
+  ifelse(results$n.avg.p < 0.001, "< 0.001",
+         format(round(results$n.avg.p, 3), nsmall = 3))
+)
+
+# Data for main effects
+plot_df <- data.frame(
+  Effect = factor(c("ACME", "ADE", "Total Effect"),
+                  levels = c("Total Effect", "ADE", "ACME")),
+  Estimate = c(results$tau.coef, results$z.avg, results$d.avg),
+  Lower = c(results$tau.ci[1], results$z.avg.ci[1], results$d.avg.ci[1]),
+  Upper = c(results$tau.ci[2], results$z.avg.ci[2], results$d.avg.ci[2]),
+  P_value = c(results$tau.p, results$z.avg.p, results$d.avg.p)
+) %>%
+  mutate(
+    p_label = case_when(
+      P_value < 0.001 ~ "P < 0.001",
+      TRUE ~ paste0("P = ", format(round(P_value, 3), nsmall = 3))
+    )
+  )
+
+# Text for mediation proportion
+prop_text <- paste0(
+  "Prop. Mediated = ", format(round(results$n.avg * 100, 2), nsmall = 2), "%\n",
+  "95% CI: ", format(round(results$n.avg.ci[1] * 100, 2), nsmall = 2), "% to ",
+  format(round(results$n.avg.ci[2] * 100, 2), nsmall = 2), "%\n",
+  ifelse(results$n.avg.p < 0.001, "P < 0.001",
+         paste0("P = ", format(round(results$n.avg.p, 3), nsmall = 3)))
+)
+
+# Expand x-range a bit so labels fit nicely
+x_min <- min(plot_df$Lower, na.rm = TRUE)
+x_max <- max(plot_df$Upper, na.rm = TRUE)
+x_pad <- 0.35 * (x_max - x_min)
+
+# Prepare data
+plot_df <- data.frame(
+  Effect = factor(c("ACME", "ADE", "Total Effect"),
+                  levels = c("Total Effect", "ADE", "ACME")),
+  Estimate = c(results$tau.coef, results$z.avg, results$d.avg),
+  Lower = c(results$tau.ci[1], results$z.avg.ci[1], results$d.avg.ci[1]),
+  Upper = c(results$tau.ci[2], results$z.avg.ci[2], results$d.avg.ci[2]),
+  P_value = c(results$tau.p, results$z.avg.p, results$d.avg.p)
+) %>%
+  mutate(
+    p_label = case_when(
+      P_value < 0.001 ~ "P < 0.001",
+      TRUE ~ paste0("P = ", format(round(P_value, 3), nsmall = 3))
+    )
+  )
+
+# Proportion mediated text
+prop_text <- paste0(
+  "Prop. Mediated = ", format(round(results$n.avg * 100, 2), nsmall = 2), "%\n",
+  "95% CI: ", format(round(results$n.avg.ci[1] * 100, 2), nsmall = 2), "% to ",
+  format(round(results$n.avg.ci[2] * 100, 2), nsmall = 2), "%\n",
+  ifelse(results$n.avg.p < 0.001,
+         "P < 0.001",
+         paste0("P = ", format(round(results$n.avg.p, 3), nsmall = 3)))
+)
+
+# Axis range
+x_min <- min(plot_df$Lower, na.rm = TRUE)
+x_max <- max(plot_df$Upper, na.rm = TRUE)
+x_pad <- 0.35 * (x_max - x_min)
+
+# Plot
+CMPF_CRP_ADHD<-ggplot(plot_df, aes(x = Estimate, y = Effect)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey65", linewidth = 0.7) +
+  
+  geom_errorbarh(
+    aes(xmin = Lower, xmax = Upper),
+    height = 0.16,
+    linewidth = 1,
+    color = "grey40"
+  ) +
+  
+  geom_point(
+    size = 4,
+    shape = 21,
+    fill = "#B3C5F1",
+    color = "#B3C5F1",
+    stroke = 0.4
+  ) +
+  
+  geom_text(
+    aes(x = Upper, label = p_label),
+    hjust = -0.15,
+    size = 4.2
+  ) +
+  
+  annotate(
+    "text",
+    x = x_min + 0.02 * (x_max - x_min),
+    y = 1.05,
+    label = prop_text,
+    hjust = 0,
+    vjust = 1,
+    size = 4
+  ) +
+  
+  scale_x_continuous(
+    limits = c(x_min, x_max + x_pad),
+    expand = expansion(mult = c(0.02, 0.02))
+  ) +
+  
+  labs(
+    title = "Mediation analysis",
+    subtitle = "Exposure:CMPF   Mediator: CRP   Outcome: ADHD",
+    x = "Effect sizes",
+    y = NULL
+    #caption = "ACME: average causal mediation effect; ADE: average direct effect."
+  ) +
+  
+  theme_classic(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", size = 17, hjust = 0.5),
+    plot.subtitle = element_text(size = 12, hjust = 0.5),
+    axis.text.y = element_text(face = "bold", size = 12),
+    axis.text.x = element_text(size = 11),
+    axis.title.x = element_text(size = 13),
+    plot.caption = element_text(size = 10, color = "grey30"),
+    plot.margin = margin(20, 90, 20, 20)
+  ) +
+  
+  coord_cartesian(clip = "off")
+CMPF_CRP_ADHD
+```
+
+CMPF IL6 
+```{r}
+model.M <- lm(IL6 ~ cmpf, na.action = na.omit,PM)
+summary(model.M)
+
+model.Y <- glm(adhd~cmpf + IL6, family=binomial, na.action = na.omit,PM)
+summary(model.Y)
+
+set.seed(234)
+results <- mediation::mediate(
+  model.m = model.M,
+  model.y = model.Y,
+  treat = "cmpf",
+  mediator = "IL6",
+  boot = TRUE,
+  sims = 1000
+)
+summary(results)
+plot(results)
+prop_mediated <- results$n.avg * 100  # Convert to percentage
+mediation_p_value <- results$n.avg.p
+ACME_P_value <- results$d.avg.p  # Ass
+
+plot_df <- data.frame(
+  Effect = factor(c("ACME", "ADE", "Total Effect"),
+                  levels = c("ACME", "ADE", "Total Effect")),
+  Estimate = c(results$d.avg, results$z.avg, results$tau.coef),
+  Lower = c(results$d.avg.ci[1], results$z.avg.ci[1], results$tau.ci[1]),
+  Upper = c(results$d.avg.ci[2], results$z.avg.ci[2], results$tau.ci[2]),
+  P_value = c(results$d.avg.p, results$z.avg.p, results$tau.p)
+) %>%
+  mutate(
+    p_label = ifelse(P_value < 0.001, "P < 0.001",
+                     paste0("P = ", format(round(P_value, 3), nsmall = 3)))
+  )
+
+prop_label <- paste0(
+  "Prop. Mediated (avg) = ",
+  round(results$n.avg * 100, 2), "%  ",
+  "(",
+  round(results$n.avg.ci[1] * 100, 2), "%, ",
+  round(results$n.avg.ci[2] * 100, 2), "%)",
+  "; P = ",
+  ifelse(results$n.avg.p < 0.001, "< 0.001",
+         format(round(results$n.avg.p, 3), nsmall = 3))
+)
+
+# Data for main effects
+plot_df <- data.frame(
+  Effect = factor(c("ACME", "ADE", "Total Effect"),
+                  levels = c("Total Effect", "ADE", "ACME")),
+  Estimate = c(results$tau.coef, results$z.avg, results$d.avg),
+  Lower = c(results$tau.ci[1], results$z.avg.ci[1], results$d.avg.ci[1]),
+  Upper = c(results$tau.ci[2], results$z.avg.ci[2], results$d.avg.ci[2]),
+  P_value = c(results$tau.p, results$z.avg.p, results$d.avg.p)
+) %>%
+  mutate(
+    p_label = case_when(
+      P_value < 0.001 ~ "P < 0.001",
+      TRUE ~ paste0("P = ", format(round(P_value, 3), nsmall = 3))
+    )
+  )
+
+# Text for mediation proportion
+prop_text <- paste0(
+  "Prop. Mediated = ", format(round(results$n.avg * 100, 2), nsmall = 2), "%\n",
+  "95% CI: ", format(round(results$n.avg.ci[1] * 100, 2), nsmall = 2), "% to ",
+  format(round(results$n.avg.ci[2] * 100, 2), nsmall = 2), "%\n",
+  ifelse(results$n.avg.p < 0.001, "P < 0.001",
+         paste0("P = ", format(round(results$n.avg.p, 3), nsmall = 3)))
+)
+
+# Expand x-range a bit so labels fit nicely
+x_min <- min(plot_df$Lower, na.rm = TRUE)
+x_max <- max(plot_df$Upper, na.rm = TRUE)
+x_pad <- 0.35 * (x_max - x_min)
+
+# Prepare data
+plot_df <- data.frame(
+  Effect = factor(c("ACME", "ADE", "Total Effect"),
+                  levels = c("Total Effect", "ADE", "ACME")),
+  Estimate = c(results$tau.coef, results$z.avg, results$d.avg),
+  Lower = c(results$tau.ci[1], results$z.avg.ci[1], results$d.avg.ci[1]),
+  Upper = c(results$tau.ci[2], results$z.avg.ci[2], results$d.avg.ci[2]),
+  P_value = c(results$tau.p, results$z.avg.p, results$d.avg.p)
+) %>%
+  mutate(
+    p_label = case_when(
+      P_value < 0.001 ~ "P < 0.001",
+      TRUE ~ paste0("P = ", format(round(P_value, 3), nsmall = 3))
+    )
+  )
+
+# Proportion mediated text
+prop_text <- paste0(
+  "Prop. Mediated = ", format(round(results$n.avg * 100, 2), nsmall = 2), "%\n",
+  "95% CI: ", format(round(results$n.avg.ci[1] * 100, 2), nsmall = 2), "% to ",
+  format(round(results$n.avg.ci[2] * 100, 2), nsmall = 2), "%\n",
+  ifelse(results$n.avg.p < 0.001,
+         "P < 0.001",
+         paste0("P = ", format(round(results$n.avg.p, 3), nsmall = 3)))
+)
+
+# Axis range
+x_min <- min(plot_df$Lower, na.rm = TRUE)
+x_max <- max(plot_df$Upper, na.rm = TRUE)
+x_pad <- 0.35 * (x_max - x_min)
+
+# Plot
+IL6_CMPF_ADHD<-ggplot(plot_df, aes(x = Estimate, y = Effect)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey65", linewidth = 0.7) +
+  
+  geom_errorbarh(
+    aes(xmin = Lower, xmax = Upper),
+    height = 0.16,
+    linewidth = 1,
+    color = "grey40"
+  ) +
+  
+  geom_point(
+    size = 4,
+    shape = 21,
+    fill = "#B3C5F1",
+    color = "#B3C5F1",
+    stroke = 0.4
+  ) +
+  
+  geom_text(
+    aes(x = Upper, label = p_label),
+    hjust = -0.15,
+    size = 4.2
+  ) +
+  
+  annotate(
+    "text",
+    x = x_min + 0.02 * (x_max - x_min),
+    y = 1.05,
+    label = prop_text,
+    hjust = 0,
+    vjust = 1,
+    size = 4
+  ) +
+  
+  scale_x_continuous(
+    limits = c(x_min, x_max + x_pad),
+    expand = expansion(mult = c(0.02, 0.02))
+  ) +
+  
+  labs(
+    title = "Mediation analysis",
+    subtitle = "Exposure:CMPF   Mediator: IL6   Outcome: ADHD",
+    x = "Effect sizes",
+    y = NULL
+  #  caption = "ACME: average causal mediation effect; ADE: average direct effect."
+  ) +
+  
+  theme_classic(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", size = 17, hjust = 0.5),
+    plot.subtitle = element_text(size = 12, hjust = 0.5),
+    axis.text.y = element_text(face = "bold", size = 12),
+    axis.text.x = element_text(size = 11),
+    axis.title.x = element_text(size = 13),
+    plot.caption = element_text(size = 10, color = "grey30"),
+    plot.margin = margin(20, 90, 20, 20)
+  ) +
+  
+  coord_cartesian(clip = "off")
+IL6_CMPF_ADHD
+```
+IL6 HCMPF
+```{r}
+model.M <- lm(IL6 ~ hcmpf, na.action = na.omit,PM)
+summary(model.M)
+
+model.Y <- glm(adhd~hcmpf + IL6, family=binomial, na.action = na.omit,PM)
+summary(model.Y)
+
+set.seed(234)
+results <- mediation::mediate(
+  model.m = model.M,
+  model.y = model.Y,
+  treat = "hcmpf",
+  mediator = "IL6",
+  boot = TRUE,
+  sims = 1000
+)
+summary(results)
+plot(results)
+prop_mediated <- results$n.avg * 100  # Convert to percentage
+mediation_p_value <- results$n.avg.p
+ACME_P_value <- results$d.avg.p  # Ass
+
+plot_df <- data.frame(
+  Effect = factor(c("ACME", "ADE", "Total Effect"),
+                  levels = c("ACME", "ADE", "Total Effect")),
+  Estimate = c(results$d.avg, results$z.avg, results$tau.coef),
+  Lower = c(results$d.avg.ci[1], results$z.avg.ci[1], results$tau.ci[1]),
+  Upper = c(results$d.avg.ci[2], results$z.avg.ci[2], results$tau.ci[2]),
+  P_value = c(results$d.avg.p, results$z.avg.p, results$tau.p)
+) %>%
+  mutate(
+    p_label = ifelse(P_value < 0.001, "P < 0.001",
+                     paste0("P = ", format(round(P_value, 3), nsmall = 3)))
+  )
+
+prop_label <- paste0(
+  "Prop. Mediated (avg) = ",
+  round(results$n.avg * 100, 2), "%  ",
+  "(",
+  round(results$n.avg.ci[1] * 100, 2), "%, ",
+  round(results$n.avg.ci[2] * 100, 2), "%)",
+  "; P = ",
+  ifelse(results$n.avg.p < 0.001, "< 0.001",
+         format(round(results$n.avg.p, 3), nsmall = 3))
+)
+
+# Data for main effects
+plot_df <- data.frame(
+  Effect = factor(c("ACME", "ADE", "Total Effect"),
+                  levels = c("Total Effect", "ADE", "ACME")),
+  Estimate = c(results$tau.coef, results$z.avg, results$d.avg),
+  Lower = c(results$tau.ci[1], results$z.avg.ci[1], results$d.avg.ci[1]),
+  Upper = c(results$tau.ci[2], results$z.avg.ci[2], results$d.avg.ci[2]),
+  P_value = c(results$tau.p, results$z.avg.p, results$d.avg.p)
+) %>%
+  mutate(
+    p_label = case_when(
+      P_value < 0.001 ~ "P < 0.001",
+      TRUE ~ paste0("P = ", format(round(P_value, 3), nsmall = 3))
+    )
+  )
+
+# Text for mediation proportion
+prop_text <- paste0(
+  "Prop. Mediated = ", format(round(results$n.avg * 100, 2), nsmall = 2), "%\n",
+  "95% CI: ", format(round(results$n.avg.ci[1] * 100, 2), nsmall = 2), "% to ",
+  format(round(results$n.avg.ci[2] * 100, 2), nsmall = 2), "%\n",
+  ifelse(results$n.avg.p < 0.001, "P < 0.001",
+         paste0("P = ", format(round(results$n.avg.p, 3), nsmall = 3)))
+)
+
+# Expand x-range a bit so labels fit nicely
+x_min <- min(plot_df$Lower, na.rm = TRUE)
+x_max <- max(plot_df$Upper, na.rm = TRUE)
+x_pad <- 0.35 * (x_max - x_min)
+
+# Prepare data
+plot_df <- data.frame(
+  Effect = factor(c("ACME", "ADE", "Total Effect"),
+                  levels = c("Total Effect", "ADE", "ACME")),
+  Estimate = c(results$tau.coef, results$z.avg, results$d.avg),
+  Lower = c(results$tau.ci[1], results$z.avg.ci[1], results$d.avg.ci[1]),
+  Upper = c(results$tau.ci[2], results$z.avg.ci[2], results$d.avg.ci[2]),
+  P_value = c(results$tau.p, results$z.avg.p, results$d.avg.p)
+) %>%
+  mutate(
+    p_label = case_when(
+      P_value < 0.001 ~ "P < 0.001",
+      TRUE ~ paste0("P = ", format(round(P_value, 3), nsmall = 3))
+    )
+  )
+
+# Proportion mediated text
+prop_text <- paste0(
+  "Prop. Mediated = ", format(round(results$n.avg * 100, 2), nsmall = 2), "%\n",
+  "95% CI: ", format(round(results$n.avg.ci[1] * 100, 2), nsmall = 2), "% to ",
+  format(round(results$n.avg.ci[2] * 100, 2), nsmall = 2), "%\n",
+  ifelse(results$n.avg.p < 0.001,
+         "P < 0.001",
+         paste0("P = ", format(round(results$n.avg.p, 3), nsmall = 3)))
+)
+
+# Axis range
+x_min <- min(plot_df$Lower, na.rm = TRUE)
+x_max <- max(plot_df$Upper, na.rm = TRUE)
+x_pad <- 0.35 * (x_max - x_min)
+
+# Plot
+IL6_HCMPF_ADHD<-ggplot(plot_df, aes(x = Estimate, y = Effect)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey65", linewidth = 0.7) +
+  
+  geom_errorbarh(
+    aes(xmin = Lower, xmax = Upper),
+    height = 0.16,
+    linewidth = 1,
+    color = "grey40"
+  ) +
+  
+  geom_point(
+    size = 4,
+    shape = 21,
+    fill = "#B3C5F1",
+    color = "#B3C5F1",
+    stroke = 0.4
+  ) +
+  
+  geom_text(
+    aes(x = Upper, label = p_label),
+    hjust = -0.15,
+    size = 4.2
+  ) +
+  
+  annotate(
+    "text",
+    x = x_min + 0.02 * (x_max - x_min),
+    y = 1.05,
+    label = prop_text,
+    hjust = 0,
+    vjust = 1,
+    size = 4
+  ) +
+  
+  scale_x_continuous(
+    limits = c(x_min, x_max + x_pad),
+    expand = expansion(mult = c(0.02, 0.02))
+  ) +
+  
+  labs(
+    title = "Mediation analysis",
+    subtitle = "Exposure:Hydorxy-CMPF   Mediator: IL6   Outcome: ADHD",
+    x = "Effect sizes",
+    y = NULL
+    #caption = "ACME: average causal mediation effect; ADE: average direct effect."
+  ) +
+  
+  theme_classic(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", size = 17, hjust = 0.5),
+    plot.subtitle = element_text(size = 12, hjust = 0.5),
+    axis.text.y = element_text(face = "bold", size = 12),
+    axis.text.x = element_text(size = 11),
+    axis.title.x = element_text(size = 13),
+    plot.caption = element_text(size = 10, color = "grey30"),
+    plot.margin = margin(20, 90, 20, 20)
+  ) +
+  
+  coord_cartesian(clip = "off")
+IL6_HCMPF_ADHD
+```
+IL6-3CMPFP
+```{r}
+model.M <- lm(IL6 ~ 3cmpfp, na.action = na.omit,PM)
+summary(model.M)
+
+model.Y <- glm(adhd~3cmpfp  + IL6, family=binomial, na.action = na.omit,PM)
+summary(model.Y)
+
+set.seed(234)
+results <- mediation::mediate(
+  model.m = model.M,
+  model.y = model.Y,
+  treat = "3cmpfp",
+  mediator = "IL6",
+  boot = TRUE,
+  sims = 1000
+)
+summary(results)
+plot(results)
+prop_mediated <- results$n.avg * 100  # Convert to percentage
+mediation_p_value <- results$n.avg.p
+ACME_P_value <- results$d.avg.p  # Ass
+
+plot_df <- data.frame(
+  Effect = factor(c("ACME", "ADE", "Total Effect"),
+                  levels = c("ACME", "ADE", "Total Effect")),
+  Estimate = c(results$d.avg, results$z.avg, results$tau.coef),
+  Lower = c(results$d.avg.ci[1], results$z.avg.ci[1], results$tau.ci[1]),
+  Upper = c(results$d.avg.ci[2], results$z.avg.ci[2], results$tau.ci[2]),
+  P_value = c(results$d.avg.p, results$z.avg.p, results$tau.p)
+) %>%
+  mutate(
+    p_label = ifelse(P_value < 0.001, "P < 0.001",
+                     paste0("P = ", format(round(P_value, 3), nsmall = 3)))
+  )
+
+prop_label <- paste0(
+  "Prop. Mediated (avg) = ",
+  round(results$n.avg * 100, 2), "%  ",
+  "(",
+  round(results$n.avg.ci[1] * 100, 2), "%, ",
+  round(results$n.avg.ci[2] * 100, 2), "%)",
+  "; P = ",
+  ifelse(results$n.avg.p < 0.001, "< 0.001",
+         format(round(results$n.avg.p, 3), nsmall = 3))
+)
+
+# Data for main effects
+plot_df <- data.frame(
+  Effect = factor(c("ACME", "ADE", "Total Effect"),
+                  levels = c("Total Effect", "ADE", "ACME")),
+  Estimate = c(results$tau.coef, results$z.avg, results$d.avg),
+  Lower = c(results$tau.ci[1], results$z.avg.ci[1], results$d.avg.ci[1]),
+  Upper = c(results$tau.ci[2], results$z.avg.ci[2], results$d.avg.ci[2]),
+  P_value = c(results$tau.p, results$z.avg.p, results$d.avg.p)
+) %>%
+  mutate(
+    p_label = case_when(
+      P_value < 0.001 ~ "P < 0.001",
+      TRUE ~ paste0("P = ", format(round(P_value, 3), nsmall = 3))
+    )
+  )
+
+# Text for mediation proportion
+prop_text <- paste0(
+  "Prop. Mediated = ", format(round(results$n.avg * 100, 2), nsmall = 2), "%\n",
+  "95% CI: ", format(round(results$n.avg.ci[1] * 100, 2), nsmall = 2), "% to ",
+  format(round(results$n.avg.ci[2] * 100, 2), nsmall = 2), "%\n",
+  ifelse(results$n.avg.p < 0.001, "P < 0.001",
+         paste0("P = ", format(round(results$n.avg.p, 3), nsmall = 3)))
+)
+
+# Expand x-range a bit so labels fit nicely
+x_min <- min(plot_df$Lower, na.rm = TRUE)
+x_max <- max(plot_df$Upper, na.rm = TRUE)
+x_pad <- 0.35 * (x_max - x_min)
+
+# Prepare data
+plot_df <- data.frame(
+  Effect = factor(c("ACME", "ADE", "Total Effect"),
+                  levels = c("Total Effect", "ADE", "ACME")),
+  Estimate = c(results$tau.coef, results$z.avg, results$d.avg),
+  Lower = c(results$tau.ci[1], results$z.avg.ci[1], results$d.avg.ci[1]),
+  Upper = c(results$tau.ci[2], results$z.avg.ci[2], results$d.avg.ci[2]),
+  P_value = c(results$tau.p, results$z.avg.p, results$d.avg.p)
+) %>%
+  mutate(
+    p_label = case_when(
+      P_value < 0.001 ~ "P < 0.001",
+      TRUE ~ paste0("P = ", format(round(P_value, 3), nsmall = 3))
+    )
+  )
+
+# Proportion mediated text
+prop_text <- paste0(
+  "Prop. Mediated = ", format(round(results$n.avg * 100, 2), nsmall = 2), "%\n",
+  "95% CI: ", format(round(results$n.avg.ci[1] * 100, 2), nsmall = 2), "% to ",
+  format(round(results$n.avg.ci[2] * 100, 2), nsmall = 2), "%\n",
+  ifelse(results$n.avg.p < 0.001,
+         "P < 0.001",
+         paste0("P = ", format(round(results$n.avg.p, 3), nsmall = 3)))
+)
+
+# Axis range
+x_min <- min(plot_df$Lower, na.rm = TRUE)
+x_max <- max(plot_df$Upper, na.rm = TRUE)
+x_pad <- 0.35 * (x_max - x_min)
+
+# Plot
+IL6_3CMPFP_ADHD<-ggplot(plot_df, aes(x = Estimate, y = Effect)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey65", linewidth = 0.7) +
+  
+  geom_errorbarh(
+    aes(xmin = Lower, xmax = Upper),
+    height = 0.16,
+    linewidth = 1,
+    color = "grey40"
+  ) +
+  
+  geom_point(
+    size = 4,
+    shape = 21,
+    fill = "#B3C5F1",
+    color = "#B3C5F1",
+    stroke = 0.4
+  ) +
+  
+  geom_text(
+    aes(x = Upper, label = p_label),
+    hjust = -0.15,
+    size = 4.2
+  ) +
+  
+  annotate(
+    "text",
+    x = x_min + 0.02 * (x_max - x_min),
+    y = 1.05,
+    label = prop_text,
+    hjust = 0,
+    vjust = 1,
+    size = 4
+  ) +
+  
+  scale_x_continuous(
+    limits = c(x_min, x_max + x_pad),
+    expand = expansion(mult = c(0.02, 0.02))
+  ) +
+  
+  labs(
+    title = "Mediation analysis",
+    subtitle = "Exposure:3-CMPFP   Mediator: IL6   Outcome: ADHD",
+    x = "Effect sizes",
+    y = NULL
+   # caption = "ACME: average causal mediation effect; ADE: average direct effect."
+  ) +
+  
+  theme_classic(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", size = 17, hjust = 0.5),
+    plot.subtitle = element_text(size = 12, hjust = 0.5),
+    axis.text.y = element_text(face = "bold", size = 12),
+    axis.text.x = element_text(size = 11),
+    axis.title.x = element_text(size = 13),
+    plot.caption = element_text(size = 10, color = "grey30"),
+    plot.margin = margin(20, 90, 20, 20)
+  ) +
+  
+  coord_cartesian(clip = "off")
+IL6_3CMPFP_ADHD
+```
+
+IL12 HCMPF
+```{r}
+model.M <- lm(IL_12B ~ hcmpf, na.action = na.omit,PM)
+summary(model.M)
+
+model.Y <- glm(adhd~hcmpf + IL_12B, family=binomial, na.action = na.omit,PM)
+summary(model.Y)
+
+set.seed(234)
+results <- mediation::mediate(
+  model.m = model.M,
+  model.y = model.Y,
+  treat = "hcmpf",
+  mediator = "IL_12B",
+  boot = TRUE,
+  sims = 1000
+)
+summary(results)
+plot(results)
+prop_mediated <- results$n.avg * 100  # Convert to percentage
+mediation_p_value <- results$n.avg.p
+ACME_P_value <- results$d.avg.p  # Ass
+
+plot_df <- data.frame(
+  Effect = factor(c("ACME", "ADE", "Total Effect"),
+                  levels = c("ACME", "ADE", "Total Effect")),
+  Estimate = c(results$d.avg, results$z.avg, results$tau.coef),
+  Lower = c(results$d.avg.ci[1], results$z.avg.ci[1], results$tau.ci[1]),
+  Upper = c(results$d.avg.ci[2], results$z.avg.ci[2], results$tau.ci[2]),
+  P_value = c(results$d.avg.p, results$z.avg.p, results$tau.p)
+) %>%
+  mutate(
+    p_label = ifelse(P_value < 0.001, "P < 0.001",
+                     paste0("P = ", format(round(P_value, 3), nsmall = 3)))
+  )
+
+prop_label <- paste0(
+  "Prop. Mediated (avg) = ",
+  round(results$n.avg * 100, 2), "%  ",
+  "(",
+  round(results$n.avg.ci[1] * 100, 2), "%, ",
+  round(results$n.avg.ci[2] * 100, 2), "%)",
+  "; P = ",
+  ifelse(results$n.avg.p < 0.001, "< 0.001",
+         format(round(results$n.avg.p, 3), nsmall = 3))
+)
+
+# Data for main effects
+plot_df <- data.frame(
+  Effect = factor(c("ACME", "ADE", "Total Effect"),
+                  levels = c("Total Effect", "ADE", "ACME")),
+  Estimate = c(results$tau.coef, results$z.avg, results$d.avg),
+  Lower = c(results$tau.ci[1], results$z.avg.ci[1], results$d.avg.ci[1]),
+  Upper = c(results$tau.ci[2], results$z.avg.ci[2], results$d.avg.ci[2]),
+  P_value = c(results$tau.p, results$z.avg.p, results$d.avg.p)
+) %>%
+  mutate(
+    p_label = case_when(
+      P_value < 0.001 ~ "P < 0.001",
+      TRUE ~ paste0("P = ", format(round(P_value, 3), nsmall = 3))
+    )
+  )
+
+# Text for mediation proportion
+prop_text <- paste0(
+  "Prop. Mediated = ", format(round(results$n.avg * 100, 2), nsmall = 2), "%\n",
+  "95% CI: ", format(round(results$n.avg.ci[1] * 100, 2), nsmall = 2), "% to ",
+  format(round(results$n.avg.ci[2] * 100, 2), nsmall = 2), "%\n",
+  ifelse(results$n.avg.p < 0.001, "P < 0.001",
+         paste0("P = ", format(round(results$n.avg.p, 3), nsmall = 3)))
+)
+
+# Expand x-range a bit so labels fit nicely
+x_min <- min(plot_df$Lower, na.rm = TRUE)
+x_max <- max(plot_df$Upper, na.rm = TRUE)
+x_pad <- 0.35 * (x_max - x_min)
+
+# Prepare data
+plot_df <- data.frame(
+  Effect = factor(c("ACME", "ADE", "Total Effect"),
+                  levels = c("Total Effect", "ADE", "ACME")),
+  Estimate = c(results$tau.coef, results$z.avg, results$d.avg),
+  Lower = c(results$tau.ci[1], results$z.avg.ci[1], results$d.avg.ci[1]),
+  Upper = c(results$tau.ci[2], results$z.avg.ci[2], results$d.avg.ci[2]),
+  P_value = c(results$tau.p, results$z.avg.p, results$d.avg.p)
+) %>%
+  mutate(
+    p_label = case_when(
+      P_value < 0.001 ~ "P < 0.001",
+      TRUE ~ paste0("P = ", format(round(P_value, 3), nsmall = 3))
+    )
+  )
+
+# Proportion mediated text
+prop_text <- paste0(
+  "Prop. Mediated = ", format(round(results$n.avg * 100, 2), nsmall = 2), "%\n",
+  "95% CI: ", format(round(results$n.avg.ci[1] * 100, 2), nsmall = 2), "% to ",
+  format(round(results$n.avg.ci[2] * 100, 2), nsmall = 2), "%\n",
+  ifelse(results$n.avg.p < 0.001,
+         "P < 0.001",
+         paste0("P = ", format(round(results$n.avg.p, 3), nsmall = 3)))
+)
+
+# Axis range
+x_min <- min(plot_df$Lower, na.rm = TRUE)
+x_max <- max(plot_df$Upper, na.rm = TRUE)
+x_pad <- 0.35 * (x_max - x_min)
+
+# Plot
+IL12B_HCMPF_ADHD<-ggplot(plot_df, aes(x = Estimate, y = Effect)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey65", linewidth = 0.7) +
+  
+  geom_errorbarh(
+    aes(xmin = Lower, xmax = Upper),
+    height = 0.16,
+    linewidth = 1,
+    color = "grey40"
+  ) +
+  
+  geom_point(
+    size = 4,
+    shape = 21,
+    fill = "#B3C5F1",
+    color = "#B3C5F1",
+    stroke = 0.4
+  ) +
+  
+  geom_text(
+    aes(x = Upper, label = p_label),
+    hjust = -0.15,
+    size = 4.2
+  ) +
+  
+  annotate(
+    "text",
+    x = x_min + 0.02 * (x_max - x_min),
+    y = 1.05,
+    label = prop_text,
+    hjust = 0,
+    vjust = 1,
+    size = 4
+  ) +
+  
+  scale_x_continuous(
+    limits = c(x_min, x_max + x_pad),
+    expand = expansion(mult = c(0.02, 0.02))
+  ) +
+  
+  labs(
+    title = "Mediation analysis",
+    subtitle = "Exposure:Hydorxy-CMPF   Mediator: IL-12B   Outcome: ADHD",
+    x = "Effect sizes",
+    y = NULL
+    #caption = "ACME: average causal mediation effect; ADE: average direct effect."
+  ) +
+  
+  theme_classic(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", size = 17, hjust = 0.5),
+    plot.subtitle = element_text(size = 12, hjust = 0.5),
+    axis.text.y = element_text(face = "bold", size = 12),
+    axis.text.x = element_text(size = 11),
+    axis.title.x = element_text(size = 13),
+    plot.caption = element_text(size = 10, color = "grey30"),
+    plot.margin = margin(20, 90, 20, 20)
+  ) +
+  
+  coord_cartesian(clip = "off")
+IL12B_HCMPF_ADHD
+```
+IL12B-3CMPFP
+```{r}
+model.M <- lm(IL_12B ~ 3cmpfp, na.action = na.omit,PM)
+summary(model.M)
+
+model.Y <- glm(adhd~3cmpfp  + IL_12B, family=binomial, na.action = na.omit,PM)
+summary(model.Y)
+
+set.seed(234)
+results <- mediation::mediate(
+  model.m = model.M,
+  model.y = model.Y,
+  treat = "3cmpfp",
+  mediator = "IL_12B",
+  boot = TRUE,
+  sims = 1000
+)
+summary(results)
+plot(results)
+prop_mediated <- results$n.avg * 100  # Convert to percentage
+mediation_p_value <- results$n.avg.p
+ACME_P_value <- results$d.avg.p  # Ass
+
+plot_df <- data.frame(
+  Effect = factor(c("ACME", "ADE", "Total Effect"),
+                  levels = c("ACME", "ADE", "Total Effect")),
+  Estimate = c(results$d.avg, results$z.avg, results$tau.coef),
+  Lower = c(results$d.avg.ci[1], results$z.avg.ci[1], results$tau.ci[1]),
+  Upper = c(results$d.avg.ci[2], results$z.avg.ci[2], results$tau.ci[2]),
+  P_value = c(results$d.avg.p, results$z.avg.p, results$tau.p)
+) %>%
+  mutate(
+    p_label = ifelse(P_value < 0.001, "P < 0.001",
+                     paste0("P = ", format(round(P_value, 3), nsmall = 3)))
+  )
+
+prop_label <- paste0(
+  "Prop. Mediated (avg) = ",
+  round(results$n.avg * 100, 2), "%  ",
+  "(",
+  round(results$n.avg.ci[1] * 100, 2), "%, ",
+  round(results$n.avg.ci[2] * 100, 2), "%)",
+  "; P = ",
+  ifelse(results$n.avg.p < 0.001, "< 0.001",
+         format(round(results$n.avg.p, 3), nsmall = 3))
+)
+
+# Data for main effects
+plot_df <- data.frame(
+  Effect = factor(c("ACME", "ADE", "Total Effect"),
+                  levels = c("Total Effect", "ADE", "ACME")),
+  Estimate = c(results$tau.coef, results$z.avg, results$d.avg),
+  Lower = c(results$tau.ci[1], results$z.avg.ci[1], results$d.avg.ci[1]),
+  Upper = c(results$tau.ci[2], results$z.avg.ci[2], results$d.avg.ci[2]),
+  P_value = c(results$tau.p, results$z.avg.p, results$d.avg.p)
+) %>%
+  mutate(
+    p_label = case_when(
+      P_value < 0.001 ~ "P < 0.001",
+      TRUE ~ paste0("P = ", format(round(P_value, 3), nsmall = 3))
+    )
+  )
+
+# Text for mediation proportion
+prop_text <- paste0(
+  "Prop. Mediated = ", format(round(results$n.avg * 100, 2), nsmall = 2), "%\n",
+  "95% CI: ", format(round(results$n.avg.ci[1] * 100, 2), nsmall = 2), "% to ",
+  format(round(results$n.avg.ci[2] * 100, 2), nsmall = 2), "%\n",
+  ifelse(results$n.avg.p < 0.001, "P < 0.001",
+         paste0("P = ", format(round(results$n.avg.p, 3), nsmall = 3)))
+)
+
+# Expand x-range a bit so labels fit nicely
+x_min <- min(plot_df$Lower, na.rm = TRUE)
+x_max <- max(plot_df$Upper, na.rm = TRUE)
+x_pad <- 0.35 * (x_max - x_min)
+
+# Prepare data
+plot_df <- data.frame(
+  Effect = factor(c("ACME", "ADE", "Total Effect"),
+                  levels = c("Total Effect", "ADE", "ACME")),
+  Estimate = c(results$tau.coef, results$z.avg, results$d.avg),
+  Lower = c(results$tau.ci[1], results$z.avg.ci[1], results$d.avg.ci[1]),
+  Upper = c(results$tau.ci[2], results$z.avg.ci[2], results$d.avg.ci[2]),
+  P_value = c(results$tau.p, results$z.avg.p, results$d.avg.p)
+) %>%
+  mutate(
+    p_label = case_when(
+      P_value < 0.001 ~ "P < 0.001",
+      TRUE ~ paste0("P = ", format(round(P_value, 3), nsmall = 3))
+    )
+  )
+
+# Proportion mediated text
+prop_text <- paste0(
+  "Prop. Mediated = ", format(round(results$n.avg * 100, 2), nsmall = 2), "%\n",
+  "95% CI: ", format(round(results$n.avg.ci[1] * 100, 2), nsmall = 2), "% to ",
+  format(round(results$n.avg.ci[2] * 100, 2), nsmall = 2), "%\n",
+  ifelse(results$n.avg.p < 0.001,
+         "P < 0.001",
+         paste0("P = ", format(round(results$n.avg.p, 3), nsmall = 3)))
+)
+
+# Axis range
+x_min <- min(plot_df$Lower, na.rm = TRUE)
+x_max <- max(plot_df$Upper, na.rm = TRUE)
+x_pad <- 0.35 * (x_max - x_min)
+
+# Plot
+IL12B_3CMPFP_ADHD<-ggplot(plot_df, aes(x = Estimate, y = Effect)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey65", linewidth = 0.7) +
+  
+  geom_errorbarh(
+    aes(xmin = Lower, xmax = Upper),
+    height = 0.16,
+    linewidth = 1,
+    color = "grey40"
+  ) +
+  
+  geom_point(
+    size = 4,
+    shape = 21,
+    fill = "#B3C5F1",
+    color = "#B3C5F1",
+    stroke = 0.4
+  ) +
+  
+  geom_text(
+    aes(x = Upper, label = p_label),
+    hjust = -0.15,
+    size = 4.2
+  ) +
+  
+  annotate(
+    "text",
+    x = x_min + 0.02 * (x_max - x_min),
+    y = 1.05,
+    label = prop_text,
+    hjust = 0,
+    vjust = 1,
+    size = 4
+  ) +
+  
+  scale_x_continuous(
+    limits = c(x_min, x_max + x_pad),
+    expand = expansion(mult = c(0.02, 0.02))
+  ) +
+  
+  labs(
+    title = "Mediation analysis",
+    subtitle = "Exposure:3-CMPFP   Mediator: IL-12B   Outcome: ADHD",
+    x = "Effect sizes",
+    y = NULL
+    #caption = "ACME: average causal mediation effect; ADE: average direct effect."
+  ) +
+  
+  theme_classic(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", size = 17, hjust = 0.5),
+    plot.subtitle = element_text(size = 12, hjust = 0.5),
+    axis.text.y = element_text(face = "bold", size = 12),
+    axis.text.x = element_text(size = 11),
+    axis.title.x = element_text(size = 13),
+    plot.caption = element_text(size = 10, color = "grey30"),
+    plot.margin = margin(20, 90, 20, 20)
+  ) +
+  
+  coord_cartesian(clip = "off")
+IL12B_3CMPFP_ADHD
+```
+CMPF IL12B
+```{r}
+model.M <- lm(IL_12B ~ cmpf, na.action = na.omit,PM)
+summary(model.M)
+
+model.Y <- glm(adhd~cmpf  + IL_12B, family=binomial, na.action = na.omit,PM)
+summary(model.Y)
+
+set.seed(234)
+results <- mediation::mediate(
+  model.m = model.M,
+  model.y = model.Y,
+  treat = "cmpf",
+  mediator = "IL_12B",
+  boot = TRUE,
+  sims = 1000
+)
+summary(results)
+plot(results)
+prop_mediated <- results$n.avg * 100  # Convert to percentage
+mediation_p_value <- results$n.avg.p
+ACME_P_value <- results$d.avg.p  # Ass
+
+plot_df <- data.frame(
+  Effect = factor(c("ACME", "ADE", "Total Effect"),
+                  levels = c("ACME", "ADE", "Total Effect")),
+  Estimate = c(results$d.avg, results$z.avg, results$tau.coef),
+  Lower = c(results$d.avg.ci[1], results$z.avg.ci[1], results$tau.ci[1]),
+  Upper = c(results$d.avg.ci[2], results$z.avg.ci[2], results$tau.ci[2]),
+  P_value = c(results$d.avg.p, results$z.avg.p, results$tau.p)
+) %>%
+  mutate(
+    p_label = ifelse(P_value < 0.001, "P < 0.001",
+                     paste0("P = ", format(round(P_value, 3), nsmall = 3)))
+  )
+
+prop_label <- paste0(
+  "Prop. Mediated (avg) = ",
+  round(results$n.avg * 100, 2), "%  ",
+  "(",
+  round(results$n.avg.ci[1] * 100, 2), "%, ",
+  round(results$n.avg.ci[2] * 100, 2), "%)",
+  "; P = ",
+  ifelse(results$n.avg.p < 0.001, "< 0.001",
+         format(round(results$n.avg.p, 3), nsmall = 3))
+)
+
+# Data for main effects
+plot_df <- data.frame(
+  Effect = factor(c("ACME", "ADE", "Total Effect"),
+                  levels = c("Total Effect", "ADE", "ACME")),
+  Estimate = c(results$tau.coef, results$z.avg, results$d.avg),
+  Lower = c(results$tau.ci[1], results$z.avg.ci[1], results$d.avg.ci[1]),
+  Upper = c(results$tau.ci[2], results$z.avg.ci[2], results$d.avg.ci[2]),
+  P_value = c(results$tau.p, results$z.avg.p, results$d.avg.p)
+) %>%
+  mutate(
+    p_label = case_when(
+      P_value < 0.001 ~ "P < 0.001",
+      TRUE ~ paste0("P = ", format(round(P_value, 3), nsmall = 3))
+    )
+  )
+
+# Text for mediation proportion
+prop_text <- paste0(
+  "Prop. Mediated = ", format(round(results$n.avg * 100, 2), nsmall = 2), "%\n",
+  "95% CI: ", format(round(results$n.avg.ci[1] * 100, 2), nsmall = 2), "% to ",
+  format(round(results$n.avg.ci[2] * 100, 2), nsmall = 2), "%\n",
+  ifelse(results$n.avg.p < 0.001, "P < 0.001",
+         paste0("P = ", format(round(results$n.avg.p, 3), nsmall = 3)))
+)
+
+# Expand x-range a bit so labels fit nicely
+x_min <- min(plot_df$Lower, na.rm = TRUE)
+x_max <- max(plot_df$Upper, na.rm = TRUE)
+x_pad <- 0.35 * (x_max - x_min)
+
+# Prepare data
+plot_df <- data.frame(
+  Effect = factor(c("ACME", "ADE", "Total Effect"),
+                  levels = c("Total Effect", "ADE", "ACME")),
+  Estimate = c(results$tau.coef, results$z.avg, results$d.avg),
+  Lower = c(results$tau.ci[1], results$z.avg.ci[1], results$d.avg.ci[1]),
+  Upper = c(results$tau.ci[2], results$z.avg.ci[2], results$d.avg.ci[2]),
+  P_value = c(results$tau.p, results$z.avg.p, results$d.avg.p)
+) %>%
+  mutate(
+    p_label = case_when(
+      P_value < 0.001 ~ "P < 0.001",
+      TRUE ~ paste0("P = ", format(round(P_value, 3), nsmall = 3))
+    )
+  )
+
+# Proportion mediated text
+prop_text <- paste0(
+  "Prop. Mediated = ", format(round(results$n.avg * 100, 2), nsmall = 2), "%\n",
+  "95% CI: ", format(round(results$n.avg.ci[1] * 100, 2), nsmall = 2), "% to ",
+  format(round(results$n.avg.ci[2] * 100, 2), nsmall = 2), "%\n",
+  ifelse(results$n.avg.p < 0.001,
+         "P < 0.001",
+         paste0("P = ", format(round(results$n.avg.p, 3), nsmall = 3)))
+)
+
+# Axis range
+x_min <- min(plot_df$Lower, na.rm = TRUE)
+x_max <- max(plot_df$Upper, na.rm = TRUE)
+x_pad <- 0.35 * (x_max - x_min)
+
+# Plot
+IL12B_CMPF_ADHD<-ggplot(plot_df, aes(x = Estimate, y = Effect)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey65", linewidth = 0.7) +
+  
+  geom_errorbarh(
+    aes(xmin = Lower, xmax = Upper),
+    height = 0.16,
+    linewidth = 1,
+    color = "grey40"
+  ) +
+  
+  geom_point(
+    size = 4,
+    shape = 21,
+    fill = "#B3C5F1",
+    color = "#B3C5F1",
+    stroke = 0.4
+  ) +
+  
+  geom_text(
+    aes(x = Upper, label = p_label),
+    hjust = -0.15,
+    size = 4.2
+  ) +
+  
+  annotate(
+    "text",
+    x = x_min + 0.02 * (x_max - x_min),
+    y = 1.05,
+    label = prop_text,
+    hjust = 0,
+    vjust = 1,
+    size = 4
+  ) +
+  
+  scale_x_continuous(
+    limits = c(x_min, x_max + x_pad),
+    expand = expansion(mult = c(0.02, 0.02))
+  ) +
+  
+  labs(
+    title = "Mediation analysis",
+    subtitle = "Exposure:CMPF   Mediator: IL-12B   Outcome: ADHD",
+    x = "Effect sizes",
+    y = NULL
+    #caption = "ACME: average causal mediation effect; ADE: average direct effect."
+  ) +
+  
+  theme_classic(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", size = 17, hjust = 0.5),
+    plot.subtitle = element_text(size = 12, hjust = 0.5),
+    axis.text.y = element_text(face = "bold", size = 12),
+    axis.text.x = element_text(size = 11),
+    axis.title.x = element_text(size = 13),
+    plot.caption = element_text(size = 10, color = "grey30"),
+    plot.margin = margin(20, 90, 20, 20)
+  ) +
+  
+  coord_cartesian(clip = "off")
+IL12B_CMPF_ADHD
+```
+
+```{r}
+IL12B_CMPF_ADHD
+IL12B_HCMPF_ADHD
+IL12B_3CMPFP_ADHD
+IL6_CMPF_ADHD
+IL6_HCMPF_ADHD
+IL6_3CMPFP_ADHD
+CMPF_CRP_ADHD
+HCMPF_CRP_ADHD
+CMPFP3_CRP_ADHD
+
+library(patchwork)
+(plot_HCMPF|plot_CMPF|plot_3CMPF)
+```
+
